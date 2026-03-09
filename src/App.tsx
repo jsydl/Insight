@@ -1,89 +1,49 @@
-import { ToastProvider } from "./components/ui/toast"
 import Queue from "./_pages/Queue"
-import { ToastViewport } from "@radix-ui/react-toast"
-import { useEffect, useRef, useState } from "react"
-import Solutions from "./_pages/Solutions"
-import { QueryClient, QueryClientProvider } from "react-query"
+import { useEffect, useRef } from "react"
+import PersonalityPanel from "./components/PersonalityPanel"
 
 declare global {
   interface Window {
     electronAPI: {
-      //RANDOM GETTER/SETTERS
+      // Window management
       updateContentDimensions: (dimensions: {
         width: number
         height: number
       }) => Promise<void>
-      getScreenshots: () => Promise<Array<{ path: string; preview: string }>>
-
-      //GLOBAL EVENTS
-      //TODO: CHECK THAT PROCESSING NO SCREENSHOTS AND TAKE SCREENSHOTS ARE BOTH CONDITIONAL
-      onUnauthorized: (callback: () => void) => () => void
-      onScreenshotTaken: (
-        callback: (data: { path: string; preview: string }) => void
-      ) => () => void
-      onProcessingNoScreenshots: (callback: () => void) => () => void
-      onResetView: (callback: () => void) => () => void
-      takeScreenshot: () => Promise<void>
-
-      //INITIAL SOLUTION EVENTS
-      deleteScreenshot: (
-        path: string
-      ) => Promise<{ success: boolean; error?: string }>
-      onSolutionStart: (callback: () => void) => () => void
-      onSolutionError: (callback: (error: string) => void) => () => void
-      onSolutionSuccess: (callback: (data: any) => void) => () => void
-      onProblemExtracted: (callback: (data: any) => void) => () => void
-
-      onDebugSuccess: (callback: (data: any) => void) => () => void
-
-      onDebugStart: (callback: () => void) => () => void
-      onDebugError: (callback: (error: string) => void) => () => void
-
-      // Audio Processing
-      analyzeAudioFromBase64: (data: string, mimeType: string) => Promise<{ text: string; timestamp: number }>
-      analyzeAudioFile: (path: string) => Promise<{ text: string; timestamp: number }>
-
-      moveWindowLeft: () => Promise<void>
-      moveWindowRight: () => Promise<void>
-      moveWindowUp: () => Promise<void>
-      moveWindowDown: () => Promise<void>
+      toggleWindow: () => Promise<void>
       quitApp: () => Promise<void>
-      
-      // LLM Model Management
-      getCurrentLlmConfig: () => Promise<{ provider: "ollama" | "gemini"; model: string; isOllama: boolean }>
-      getAvailableOllamaModels: () => Promise<string[]>
-      switchToOllama: (model?: string, url?: string) => Promise<{ success: boolean; error?: string }>
-      switchToGemini: (apiKey?: string) => Promise<{ success: boolean; error?: string }>
-      testLlmConnection: () => Promise<{ success: boolean; error?: string }>
-      
-      invoke: (channel: string, ...args: any[]) => Promise<any>
+
+      // View events
+      onResetView: (callback: () => void) => () => void
+
+      // Real-time transcription (streaming)
+      startRealtimeTranscription: () => Promise<{ success: boolean; error?: string }>
+      stopRealtimeTranscription: () => Promise<{ success: boolean; error?: string }>
+      onRealtimeTranscriptUpdate: (callback: (data: { text: string; cumulative: string; isFinal: boolean; timestamp: number; seq: number }) => void) => () => void
+      onRawFragment: (callback: (data: { text: string; seq: number; timestamp: number }) => void) => () => void
+
+      // Screenshot
+      onTriggerScreenshot: (callback: () => void) => () => void
+      onScreenshotStatus: (callback: (data: { id: string; stage: string; progress: number; detail?: string }) => void) => () => void
+
+      // Personality events from tray
+      onPersonalityChanged: (callback: (presetId: string) => void) => () => void
+
+      // Generic IPC
+      invoke: <T = unknown>(channel: string, ...args: unknown[]) => Promise<T>
     }
   }
 }
 
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      staleTime: Infinity,
-      cacheTime: Infinity
-    }
-  }
-})
-
 const App: React.FC = () => {
-  const [view, setView] = useState<"queue" | "solutions" | "debug">("queue")
   const containerRef = useRef<HTMLDivElement>(null)
+
+  // Detect if this window is the personality panel
+  const isPersonalityView = new URLSearchParams(window.location.search).get("view") === "personality"
 
   // Effect for height monitoring
   useEffect(() => {
-    const cleanup = window.electronAPI.onResetView(() => {
-      console.log("Received 'reset-view' message from main process.")
-      queryClient.invalidateQueries(["screenshots"])
-      queryClient.invalidateQueries(["problem_statement"])
-      queryClient.invalidateQueries(["solution"])
-      queryClient.invalidateQueries(["new_solution"])
-      setView("queue")
-    })
+    const cleanup = window.electronAPI.onResetView(() => {})
 
     return () => {
       cleanup()
@@ -91,92 +51,79 @@ const App: React.FC = () => {
   }, [])
 
   useEffect(() => {
-    if (!containerRef.current) return
+    if (isPersonalityView) return
 
-    const updateHeight = () => {
-      if (!containerRef.current) return
-      const height = containerRef.current.scrollHeight
-      const width = containerRef.current.scrollWidth
-      window.electronAPI?.updateContentDimensions({ width, height })
+    let rafId: number | null = null
+
+    const reportHitRegions = () => {
+      if (rafId !== null) cancelAnimationFrame(rafId)
+      rafId = requestAnimationFrame(() => {
+        const regions = Array.from(document.querySelectorAll('[data-hit-region="active"]'))
+          .map((element) => {
+            const rect = element.getBoundingClientRect()
+            return {
+              x: Math.round(rect.left),
+              y: Math.round(rect.top),
+              width: Math.round(rect.width),
+              height: Math.round(rect.height),
+            }
+          })
+          .filter((rect) => rect.width > 0 && rect.height > 0)
+
+        window.electronAPI.invoke("set-window-hit-regions", regions).catch(() => {})
+      })
     }
 
-    const resizeObserver = new ResizeObserver(() => {
-      updateHeight()
+    const resizeObserver = new ResizeObserver(reportHitRegions)
+    resizeObserver.observe(document.body)
+    document.querySelectorAll('[data-hit-region="active"]').forEach((element) => {
+      resizeObserver.observe(element)
     })
 
-    // Initial height update
-    updateHeight()
-
-    // Observe for changes
-    resizeObserver.observe(containerRef.current)
-
-    // Also update height when view changes
     const mutationObserver = new MutationObserver(() => {
-      updateHeight()
+      document.querySelectorAll('[data-hit-region="active"]').forEach((element) => {
+        resizeObserver.observe(element)
+      })
+      reportHitRegions()
     })
 
-    mutationObserver.observe(containerRef.current, {
+    mutationObserver.observe(document.body, {
       childList: true,
       subtree: true,
       attributes: true,
-      characterData: true
+      attributeFilter: ["data-hit-region", "class", "style"],
     })
 
+    window.addEventListener("resize", reportHitRegions)
+    reportHitRegions()
+
     return () => {
+      if (rafId !== null) cancelAnimationFrame(rafId)
       resizeObserver.disconnect()
       mutationObserver.disconnect()
+      window.removeEventListener("resize", reportHitRegions)
+      window.electronAPI.invoke("set-window-hit-regions", []).catch(() => {})
     }
-  }, [view]) // Re-run when view changes
+  }, [isPersonalityView])
 
-  useEffect(() => {
-    const cleanupFunctions = [
-      window.electronAPI.onSolutionStart(() => {
-        setView("solutions")
-        console.log("starting processing")
-      }),
+  // Dimension reporting is handled by individual views (Queue.tsx, etc.)
+  // to ensure only visible content dimensions are reported.
 
-      window.electronAPI.onUnauthorized(() => {
-        queryClient.removeQueries(["screenshots"])
-        queryClient.removeQueries(["solution"])
-        queryClient.removeQueries(["problem_statement"])
-        setView("queue")
-        console.log("Unauthorized")
-      }),
-      // Update this reset handler
-      window.electronAPI.onResetView(() => {
-        console.log("Received 'reset-view' message from main process")
-
-        queryClient.removeQueries(["screenshots"])
-        queryClient.removeQueries(["solution"])
-        queryClient.removeQueries(["problem_statement"])
-        setView("queue")
-        console.log("View reset to 'queue' via Command+R shortcut")
-      }),
-      window.electronAPI.onProblemExtracted((data: any) => {
-        if (view === "queue") {
-          console.log("Problem extracted successfully")
-          queryClient.invalidateQueries(["problem_statement"])
-          queryClient.setQueryData(["problem_statement"], data)
-        }
-      })
-    ]
-    return () => cleanupFunctions.forEach((cleanup) => cleanup())
-  }, [])
+  // If this is the personality window, render only the panel
+  if (isPersonalityView) {
+    return (
+      <div className="min-h-0 w-full h-screen">
+        <PersonalityPanel />
+      </div>
+    )
+  }
 
   return (
-    <div ref={containerRef} className="min-h-0">
-      <QueryClientProvider client={queryClient}>
-        <ToastProvider>
-          {view === "queue" ? (
-            <Queue setView={setView} />
-          ) : view === "solutions" ? (
-            <Solutions setView={setView} />
-          ) : (
-            <></>
-          )}
-          <ToastViewport />
-        </ToastProvider>
-      </QueryClientProvider>
+    <div
+      ref={containerRef}
+      className="min-h-0"
+    >
+      <Queue />
     </div>
   )
 }

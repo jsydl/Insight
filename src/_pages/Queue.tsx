@@ -1,90 +1,40 @@
 import React, { useState, useEffect, useRef } from "react"
-import { useQuery } from "react-query"
-import ScreenshotQueue from "../components/Queue/ScreenshotQueue"
-import {
-  Toast,
-  ToastTitle,
-  ToastDescription,
-  ToastVariant,
-  ToastMessage
-} from "../components/ui/toast"
 import QueueCommands from "../components/Queue/QueueCommands"
-import ModelSelector from "../components/ui/ModelSelector"
 
-interface QueueProps {
-  setView: React.Dispatch<React.SetStateAction<"queue" | "solutions" | "debug">>
+// ── Screenshot status types ──────────────────────────────────────
+type ScreenshotStage = "uploading" | "analyzing" | "done" | "failed"
+interface ScreenshotStatus {
+  id: string
+  stage: ScreenshotStage
+  progress: number      // 0-100
+  detail?: string
+  analysis?: string     // filled on success
 }
 
-const Queue: React.FC<QueueProps> = ({ setView }) => {
-  const [toastOpen, setToastOpen] = useState(false)
-  const [toastMessage, setToastMessage] = useState<ToastMessage>({
-    title: "",
-    description: "",
-    variant: "neutral"
-  })
+type ScreenshotAnalyzeResult = {
+  success: boolean
+  analysis?: string
+  error?: string
+}
 
-  const [isTooltipVisible, setIsTooltipVisible] = useState(false)
-  const [tooltipHeight, setTooltipHeight] = useState(0)
-  const contentRef = useRef<HTMLDivElement>(null)
-
+const Queue: React.FC = () => {
   const [chatInput, setChatInput] = useState("")
   const [chatMessages, setChatMessages] = useState<{role: "user"|"gemini", text: string}[]>([])
   const [chatLoading, setChatLoading] = useState(false)
   const [isChatOpen, setIsChatOpen] = useState(false)
   const chatInputRef = useRef<HTMLInputElement>(null)
-  
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false)
-  const [currentModel, setCurrentModel] = useState<{ provider: string; model: string }>({ provider: "gemini", model: "gemini-3-pro-preview" })
+  const chatEndRef = useRef<HTMLDivElement>(null)
+
+  // Screenshot status — one at a time, ephemeral
+  const [screenshotStatus, setScreenshotStatus] = useState<ScreenshotStatus | null>(null)
+  const screenshotDismissTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const barRef = useRef<HTMLDivElement>(null)
 
-  const { data: screenshots = [], refetch } = useQuery<Array<{ path: string; preview: string }>, Error>(
-    ["screenshots"],
-    async () => {
-      try {
-        const existing = await window.electronAPI.getScreenshots()
-        return existing
-      } catch (error) {
-        console.error("Error loading screenshots:", error)
-        showToast("Error", "Failed to load existing screenshots", "error")
-        return []
-      }
-    },
-    {
-      staleTime: Infinity,
-      cacheTime: Infinity,
-      refetchOnWindowFocus: true,
-      refetchOnMount: true
-    }
-  )
-
-  const showToast = (
-    title: string,
-    description: string,
-    variant: ToastVariant
-  ) => {
-    setToastMessage({ title, description, variant })
-    setToastOpen(true)
-  }
-
-  const handleDeleteScreenshot = async (index: number) => {
-    const screenshotToDelete = screenshots[index]
-
-    try {
-      const response = await window.electronAPI.deleteScreenshot(
-        screenshotToDelete.path
-      )
-
-      if (response.success) {
-        refetch()
-      } else {
-        console.error("Failed to delete screenshot:", response.error)
-        showToast("Error", "Failed to delete the screenshot file", "error")
-      }
-    } catch (error) {
-      console.error("Error deleting screenshot:", error)
-    }
-  }
+  // Auto-scroll chat to bottom when new messages arrive
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: "smooth" })
+  }, [chatMessages, chatLoading])
 
   const handleChatSend = async () => {
     if (!chatInput.trim()) return
@@ -92,7 +42,7 @@ const Queue: React.FC<QueueProps> = ({ setView }) => {
     setChatLoading(true)
     setChatInput("")
     try {
-      const response = await window.electronAPI.invoke("gemini-chat", chatInput)
+      const response = await window.electronAPI.invoke<string>("gemini-chat", chatInput)
       setChatMessages((msgs) => [...msgs, { role: "gemini", text: response }])
     } catch (err) {
       setChatMessages((msgs) => [...msgs, { role: "gemini", text: "Error: " + String(err) }])
@@ -102,115 +52,98 @@ const Queue: React.FC<QueueProps> = ({ setView }) => {
     }
   }
 
-  // Load current model configuration on mount
-  useEffect(() => {
-    const loadCurrentModel = async () => {
-      try {
-        const config = await window.electronAPI.getCurrentLlmConfig();
-        setCurrentModel({ provider: config.provider, model: config.model });
-      } catch (error) {
-        console.error('Error loading current model config:', error);
-      }
-    };
-    loadCurrentModel();
-  }, []);
+  // Screenshot capture → show attachment chip with progress, result in chat
+  const handleScreenshotCapture = async () => {
+    // Auto-open chat to show the response
+    if (!isChatOpen) setIsChatOpen(true)
 
-  useEffect(() => {
-    const updateDimensions = () => {
-      if (contentRef.current) {
-        let contentHeight = contentRef.current.scrollHeight
-        const contentWidth = contentRef.current.scrollWidth
-        if (isTooltipVisible) {
-          contentHeight += tooltipHeight
-        }
-        window.electronAPI.updateContentDimensions({
-          width: contentWidth,
-          height: contentHeight
+    // Clear any previous dismiss timer
+    if (screenshotDismissTimer.current) clearTimeout(screenshotDismissTimer.current)
+
+    const captureId = Date.now().toString()
+    setScreenshotStatus({ id: captureId, stage: "uploading", progress: 5 })
+
+    try {
+      const result = await window.electronAPI.invoke<ScreenshotAnalyzeResult>("capture-and-analyze-screenshot")
+      if (result.success && typeof result.analysis === "string") {
+        const analysisText = result.analysis
+        // Show analysis in chat
+        setChatMessages((msgs) => [...msgs, { role: "gemini", text: analysisText }])
+        setScreenshotStatus((prev) => prev?.id === captureId ? { ...prev, stage: "done", progress: 100 } : prev)
+        // Auto-dismiss after ~1s
+        screenshotDismissTimer.current = setTimeout(() => {
+          setScreenshotStatus((prev) => prev?.id === captureId ? null : prev)
+        }, 1200)
+      } else {
+        setScreenshotStatus({
+          id: captureId,
+          stage: "failed",
+          progress: 0,
+          detail: result.error || "Unknown error",
         })
       }
+    } catch (err) {
+      setScreenshotStatus({
+        id: captureId,
+        stage: "failed",
+        progress: 0,
+        detail: String(err),
+      })
+    }
+  }
+
+  // Listen for structured progress events from main process
+  useEffect(() => {
+    const cleanup = window.electronAPI.onScreenshotStatus((data: { id: string; stage: string; progress: number; detail?: string }) => {
+      setScreenshotStatus((prev) => {
+        // Only update if this is the current capture
+        if (prev && prev.id !== data.id) return prev
+        return { ...prev, ...data } as ScreenshotStatus
+      })
+    })
+    return cleanup
+  }, [])
+
+  // Listen for Ctrl+H screenshot trigger from main process
+  useEffect(() => {
+    const cleanup = window.electronAPI.onTriggerScreenshot(() => {
+      handleScreenshotCapture()
+    })
+    return cleanup
+  }, [isChatOpen])
+
+  useEffect(() => {
+    let rafId: number | null = null
+
+    const updateDimensions = () => {
+      // Debounce via rAF to prevent rapid-fire resize during state transitions
+      if (rafId !== null) cancelAnimationFrame(rafId)
+      rafId = requestAnimationFrame(() => {
+        if (barRef.current) {
+          const contentHeight = Math.min(barRef.current.offsetHeight, 500)
+          const contentWidth = barRef.current.offsetWidth
+          window.electronAPI.updateContentDimensions({
+            width: contentWidth,
+            height: contentHeight
+          })
+        }
+      })
     }
 
     const resizeObserver = new ResizeObserver(updateDimensions)
-    if (contentRef.current) {
-      resizeObserver.observe(contentRef.current)
+    if (barRef.current) {
+      resizeObserver.observe(barRef.current)
     }
     updateDimensions()
 
-    const cleanupFunctions = [
-      window.electronAPI.onScreenshotTaken(() => refetch()),
-      window.electronAPI.onResetView(() => refetch()),
-      window.electronAPI.onSolutionError((error: string) => {
-        showToast(
-          "Processing Failed",
-          "There was an error processing your screenshots.",
-          "error"
-        )
-        setView("queue")
-        console.error("Processing error:", error)
-      }),
-      window.electronAPI.onProcessingNoScreenshots(() => {
-        showToast(
-          "No Screenshots",
-          "There are no screenshots to process.",
-          "neutral"
-        )
-      })
-    ]
-
     return () => {
+      if (rafId !== null) cancelAnimationFrame(rafId)
       resizeObserver.disconnect()
-      cleanupFunctions.forEach((cleanup) => cleanup())
     }
-  }, [isTooltipVisible, tooltipHeight])
-
-  // Seamless screenshot-to-LLM flow
-  useEffect(() => {
-    // Listen for screenshot taken event
-    const unsubscribe = window.electronAPI.onScreenshotTaken(async (data) => {
-      // Refetch screenshots to update the queue
-      await refetch();
-      // Show loading in chat
-      setChatLoading(true);
-      try {
-        // Get the latest screenshot path
-        const latest = data?.path || (Array.isArray(data) && data.length > 0 && data[data.length - 1]?.path);
-        if (latest) {
-          // Call the LLM to process the screenshot
-          const response = await window.electronAPI.invoke("analyze-image-file", latest);
-          setChatMessages((msgs) => [...msgs, { role: "gemini", text: response.text }]);
-        }
-      } catch (err) {
-        setChatMessages((msgs) => [...msgs, { role: "gemini", text: "Error: " + String(err) }]);
-      } finally {
-        setChatLoading(false);
-      }
-    });
-    return () => {
-      unsubscribe && unsubscribe();
-    };
-  }, [refetch]);
-
-  const handleTooltipVisibilityChange = (visible: boolean, height: number) => {
-    setIsTooltipVisible(visible)
-    setTooltipHeight(height)
-  }
+  }, [])
 
   const handleChatToggle = () => {
     setIsChatOpen(!isChatOpen)
-  }
-
-  const handleSettingsToggle = () => {
-    setIsSettingsOpen(!isSettingsOpen)
-  }
-
-  const handleModelChange = (provider: "ollama" | "gemini", model: string) => {
-    setCurrentModel({ provider, model })
-    // Update chat messages to reflect the model change
-    const modelName = provider === "ollama" ? model : "Gemini 3 Pro"
-    setChatMessages((msgs) => [...msgs, { 
-      role: "gemini", 
-      text: `🔄 Switched to ${provider === "ollama" ? "🏠" : "☁️"} ${modelName}. Ready for your questions!` 
-    }])
   }
 
 
@@ -219,112 +152,186 @@ const Queue: React.FC<QueueProps> = ({ setView }) => {
       ref={barRef}
       style={{
         position: "relative",
-        width: "100%",
-        pointerEvents: "auto"
+        pointerEvents: "auto",
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        width: "320px",
+        overflow: "hidden",
+        padding: "0",
+        boxSizing: "border-box",
+        background: "transparent"
       }}
       className="select-none"
     >
-      <div className="bg-transparent w-full">
-        <div className="px-2 py-1">
-          <Toast
-            open={toastOpen}
-            onOpenChange={setToastOpen}
-            variant={toastMessage.variant}
-            duration={3000}
-          >
-            <ToastTitle>{toastMessage.title}</ToastTitle>
-            <ToastDescription>{toastMessage.description}</ToastDescription>
-          </Toast>
-          <div className="w-fit">
-            <QueueCommands
-              screenshots={screenshots}
-              onTooltipVisibilityChange={handleTooltipVisibilityChange}
-              onChatToggle={handleChatToggle}
-              onSettingsToggle={handleSettingsToggle}
-            />
-          </div>
-          {/* Conditional Settings Interface */}
-          {isSettingsOpen && (
-            <div className="mt-4 w-full mx-auto">
-              <ModelSelector onModelChange={handleModelChange} onChatOpen={() => setIsChatOpen(true)} />
-            </div>
-          )}
-          
-          {/* Conditional Chat Interface */}
-          {isChatOpen && (
-            <div className="mt-4 w-full mx-auto liquid-glass chat-container p-4 flex flex-col">
-            <div className="flex-1 overflow-y-auto mb-3 p-3 rounded-lg bg-white/10 backdrop-blur-md max-h-64 min-h-[120px] glass-content border border-white/20 shadow-lg">
-              {chatMessages.length === 0 ? (
-                <div className="text-sm text-gray-600 text-center mt-8">
-                  💬 Chat with {currentModel.provider === "ollama" ? "🏠" : "☁️"} {currentModel.model}
-                  <br />
-                  <span className="text-xs text-gray-500">Take a screenshot (Cmd+H) for automatic analysis</span>
-                  <br />
-                  <span className="text-xs text-gray-500">Click ⚙️ Models to switch AI providers</span>
-                </div>
-              ) : (
+      <div className="bg-transparent">
+        <div className="px-2 pb-1">
+          <QueueCommands
+            onChatToggle={handleChatToggle}
+            onChatClear={() => {
+              setChatMessages([])
+              window.electronAPI.invoke("clear-conversation-history").catch(() => {})
+            }}
+
+          />
+        </div>
+      </div>
+
+      {/* Chat Interface — centered below the bubble bar */}
+      {isChatOpen && (
+        <div
+          data-hit-region="active"
+          className="mt-2 liquid-glass chat-container p-3 flex flex-col w-full"
+          style={{ maxWidth: '320px' }}
+        >
+          {(chatMessages.length > 0 || chatLoading) && (
+            <div className="overflow-y-auto overflow-x-hidden mb-2 p-2 rounded-lg bg-black/30 max-h-48 min-h-[80px] border border-white/10">
+              {chatMessages.length > 0 &&
                 chatMessages.map((msg, idx) => (
                   <div
                     key={idx}
-                    className={`w-full flex ${msg.role === "user" ? "justify-end" : "justify-start"} mb-3`}
+                    className={`w-full flex ${
+                      msg.role === "user" ? "justify-end" : "justify-start"
+                    } mb-2`}
                   >
                     <div
-                      className={`max-w-[80%] px-3 py-1.5 rounded-xl text-xs shadow-md backdrop-blur-sm border ${
-                        msg.role === "user" 
-                          ? "bg-gray-700/80 text-gray-100 ml-12 border-gray-600/40" 
-                          : "bg-white/85 text-gray-700 mr-12 border-gray-200/50"
+                      className={`max-w-[85%] px-2.5 py-1.5 rounded-lg text-[11px] border ${
+                        msg.role === "user"
+                          ? "bg-white/15 text-gray-100 border-white/10"
+                          : "bg-white/10 text-gray-200 border-white/10"
                       }`}
-                      style={{ wordBreak: "break-word", lineHeight: "1.4" }}
+                      style={{ overflowWrap: "break-word", wordBreak: "break-word", lineHeight: "1.4" }}
                     >
                       {msg.text}
                     </div>
                   </div>
-                ))
-              )}
+                ))}
               {chatLoading && (
-                <div className="flex justify-start mb-3">
-                  <div className="bg-white/85 text-gray-600 px-3 py-1.5 rounded-xl text-xs backdrop-blur-sm border border-gray-200/50 shadow-md mr-12">
-                    <span className="inline-flex items-center">
+                <div className="flex justify-start mb-2">
+                  <div className="bg-white/10 text-gray-300 px-2.5 py-1.5 rounded-lg text-[11px] border border-white/10">
+                    <span className="inline-flex items-center gap-0.5">
                       <span className="animate-pulse text-gray-400">●</span>
-                      <span className="animate-pulse animation-delay-200 text-gray-400">●</span>
-                      <span className="animate-pulse animation-delay-400 text-gray-400">●</span>
-                      <span className="ml-2">{currentModel.model} is replying...</span>
+                      <span className="animate-pulse text-gray-400">●</span>
+                      <span className="animate-pulse text-gray-400">●</span>
                     </span>
                   </div>
                 </div>
               )}
+              <div ref={chatEndRef} />
             </div>
-            <form
-              className="flex gap-2 items-center glass-content"
-              onSubmit={e => {
-                e.preventDefault();
-                handleChatSend();
-              }}
-            >
-              <input
-                ref={chatInputRef}
-                className="flex-1 rounded-lg px-3 py-2 bg-white/25 backdrop-blur-md text-gray-800 placeholder-gray-500 text-xs focus:outline-none focus:ring-1 focus:ring-gray-400/60 border border-white/40 shadow-lg transition-all duration-200"
-                placeholder="Type your message..."
-                value={chatInput}
-                onChange={e => setChatInput(e.target.value)}
-                disabled={chatLoading}
-              />
-              <button
-                type="submit"
-                className="p-2 rounded-lg bg-gray-600/80 hover:bg-gray-700/80 border border-gray-500/60 flex items-center justify-center transition-all duration-200 backdrop-blur-sm shadow-lg disabled:opacity-50"
-                disabled={chatLoading || !chatInput.trim()}
-                tabIndex={-1}
-                aria-label="Send"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="white" className="w-4 h-4">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 19.5l15-7.5-15-7.5v6l10 1.5-10 1.5v6z" />
-                </svg>
-              </button>
-            </form>
-          </div>
           )}
+
+          {/* Screenshot attachment chip — ephemeral progress indicator */}
+          {screenshotStatus && (
+            <div
+              className={`mb-2 rounded-lg px-2.5 py-2 border transition-all duration-300 ${
+                screenshotStatus.stage === "failed"
+                  ? "bg-red-500/10 border-red-500/20"
+                  : screenshotStatus.stage === "done"
+                  ? "bg-green-500/10 border-green-500/20"
+                  : "bg-white/5 border-white/10"
+              }`}
+            >
+              {/* Top row: icon + label + dismiss */}
+              <div className="flex items-center gap-1.5">
+                {/* Camera icon */}
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5}
+                  stroke={screenshotStatus.stage === "failed" ? "#f87171" : screenshotStatus.stage === "done" ? "#4ade80" : "#9ca3af"}
+                  className="w-3 h-3 shrink-0"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6.827 6.175A2.31 2.31 0 015.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 00-1.134-.175 2.31 2.31 0 01-1.64-1.055l-.822-1.316a2.192 2.192 0 00-1.736-1.039 48.774 48.774 0 00-5.232 0 2.192 2.192 0 00-1.736 1.039l-.821 1.316z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 12.75a4.5 4.5 0 11-9 0 4.5 4.5 0 019 0z" />
+                </svg>
+                <span className={`text-[10px] font-medium flex-1 ${
+                  screenshotStatus.stage === "failed" ? "text-red-300" : screenshotStatus.stage === "done" ? "text-green-300" : "text-white/70"
+                }`}>
+                  {screenshotStatus.stage === "failed" ? "Couldn't analyze screenshot"
+                    : screenshotStatus.stage === "done" ? "Screenshot analyzed"
+                    : "Screenshot attached"}
+                </span>
+                {/* Dismiss button for errors */}
+                {screenshotStatus.stage === "failed" && (
+                  <button
+                    type="button"
+                    onClick={() => setScreenshotStatus(null)}
+                    className="text-white/30 hover:text-white/60 text-[10px] leading-none p-0.5"
+                  >✕</button>
+                )}
+              </div>
+
+              {/* Progress bar (uploading / analyzing) */}
+              {(screenshotStatus.stage === "uploading" || screenshotStatus.stage === "analyzing") && (
+                <div className="mt-1.5 h-[3px] rounded-full bg-white/5 overflow-hidden">
+                  <div
+                    className="h-full rounded-full transition-all duration-700 ease-out"
+                    style={{
+                      width: `${screenshotStatus.progress}%`,
+                      background: "linear-gradient(90deg, rgba(255,255,255,0.25), rgba(255,255,255,0.40))",
+                      animation: screenshotStatus.stage === "analyzing" ? "screenshot-pulse 1.8s ease-in-out infinite" : undefined,
+                    }}
+                  />
+                </div>
+              )}
+
+              {/* Stage detail */}
+              {screenshotStatus.detail && screenshotStatus.stage !== "failed" && (
+                <p className="mt-1 text-[9px] text-white/40 truncate">{screenshotStatus.detail}</p>
+              )}
+
+              {/* Error detail + fix */}
+              {screenshotStatus.stage === "failed" && screenshotStatus.detail && (
+                <div className="mt-1.5 space-y-1">
+                  <p className="text-[9px] text-red-300/70 leading-relaxed" style={{ overflowWrap: "break-word", wordBreak: "break-word" }}>
+                    {screenshotStatus.detail.split("\n").slice(0, 3).join(" · ")}
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+
+          <form
+            className="flex gap-2 items-center"
+            onSubmit={e => {
+              e.preventDefault();
+              handleChatSend();
+            }}
+          >
+            <input
+              ref={chatInputRef}
+              className="flex-1 rounded-lg px-2.5 py-1.5 bg-white/10 text-gray-100 placeholder-gray-400 text-[11px] focus:outline-none focus:ring-1 focus:ring-white/20 border border-white/10 transition-all duration-200"
+              placeholder="Type your message..."
+              value={chatInput}
+              onChange={e => setChatInput(e.target.value)}
+              disabled={chatLoading}
+            />
+            {/* Screenshot (picture) icon button */}
+            <button
+              type="button"
+              className="p-1.5 rounded-lg bg-white/15 hover:bg-white/25 border border-white/10 flex items-center justify-center transition-all duration-200 disabled:opacity-50"
+              disabled={chatLoading || (screenshotStatus !== null && screenshotStatus.stage !== "done" && screenshotStatus.stage !== "failed")}
+              onClick={handleScreenshotCapture}
+              tabIndex={-1}
+              aria-label="Screenshot"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="white" className="w-3.5 h-3.5">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3.75 21h16.5A2.25 2.25 0 0022.5 18.75V5.25A2.25 2.25 0 0020.25 3H3.75A2.25 2.25 0 001.5 5.25v13.5A2.25 2.25 0 003.75 21z" />
+              </svg>
+            </button>
+            <button
+              type="submit"
+              className="p-1.5 rounded-lg bg-white/15 hover:bg-white/25 border border-white/10 flex items-center justify-center transition-all duration-200 disabled:opacity-50"
+              disabled={chatLoading || !chatInput.trim()}
+              tabIndex={-1}
+              aria-label="Send"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="white" className="w-3.5 h-3.5">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 19.5l15-7.5-15-7.5v6l10 1.5-10 1.5v6z" />
+              </svg>
+            </button>
+          </form>
         </div>
-      </div>
+      )}
+
     </div>
   )
 }

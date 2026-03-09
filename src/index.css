@@ -2,22 +2,48 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Liquid Glass Effect Base */
+/* Sleek thin scrollbar for glass UI */
+::-webkit-scrollbar {
+  width: 4px;
+}
+::-webkit-scrollbar:horizontal {
+  height: 0;
+  display: none;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 2px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+/* Prevent any horizontal scroll at the page level.
+   background: transparent ensures no rectangular window artifact shows
+   around the glass bubble or chat box in the Electron transparent window. */
+html, body {
+  overflow-x: hidden;
+  background: transparent !important;
+  margin: 0;
+  padding: 0;
+}
+
+/* Liquid Glass Effect Base — dark translucent */
 .liquid-glass {
-  background: rgba(255, 255, 255, 0.25);
-  backdrop-filter: blur(16px) saturate(180%) brightness(120%);
-  -webkit-backdrop-filter: blur(16px) saturate(180%) brightness(120%);
-  border: 2px solid rgba(255, 255, 255, 0.3);
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(20px) saturate(160%) brightness(85%);
+  -webkit-backdrop-filter: blur(20px) saturate(160%) brightness(85%);
+  border: 1px solid rgba(255, 255, 255, 0.06);
   border-radius: 1rem;
-  box-shadow: 
-    0 8px 32px rgba(0, 0, 0, 0.2),
-    inset 0 1px 0 rgba(255, 255, 255, 0.3),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.1);
+  box-shadow: none;
   position: relative;
   overflow: hidden;
 }
 
-/* Enhanced liquid glass with shimmer effect */
+/* Subtle shimmer on liquid glass */
 .liquid-glass::before {
   content: '';
   position: absolute;
@@ -28,10 +54,10 @@
   background: linear-gradient(
     90deg,
     transparent,
-    rgba(255, 255, 255, 0.1),
+    rgba(255, 255, 255, 0.04),
     transparent
   );
-  animation: shimmer 3s ease-in-out infinite;
+  animation: shimmer 4s ease-in-out infinite;
   pointer-events: none;
 }
 
@@ -47,29 +73,31 @@
   }
 }
 
+/* Screenshot progress bar pulse */
+@keyframes screenshot-pulse {
+  0%, 100% { opacity: 0.7; }
+  50%      { opacity: 1; }
+}
+
 /* Fallback for browsers without backdrop-filter support */
 @supports not (backdrop-filter: blur()) {
   .liquid-glass {
-    background: rgba(255, 255, 255, 0.5);
-    border: 2px solid rgba(255, 255, 255, 0.6);
+    background: rgba(0, 0, 0, 0.7);
+    border: 1px solid rgba(255, 255, 255, 0.08);
   }
 }
 
-/* Add a subtle outline to ensure visibility */
-.liquid-glass:before {
-  outline: 1px solid rgba(255, 255, 255, 0.1);
-  outline-offset: -1px;
-}
-
-.draggable-area {
-  -webkit-app-region: drag;
-  height: 32px;
-  width: 100%;
-  background: transparent;
-  cursor: move;
-  position: relative;
-  z-index: 1000;
-  border-radius: 1rem 1rem 0 0;
+/* Subtle inner edge highlight */
+.liquid-glass:after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  outline: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 1rem;
+  pointer-events: none;
 }
 
 /* Make sure buttons and interactive elements are not draggable */
@@ -77,35 +105,35 @@ button, input, select, textarea, .interactive {
   -webkit-app-region: no-drag;
 }
 
+/* Drag handle for window title bar */
+.drag-handle {
+  -webkit-app-region: drag;
+  user-select: none;
+  background: rgba(0, 0, 0, 0.15);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.drag-handle * {
+  -webkit-app-region: no-drag;
+}
+
 /* Override for the liquid glass bar - make it draggable */
-.liquid-glass.draggable-area {
+.liquid-glass-bar.draggable-area {
   -webkit-app-region: drag;
   cursor: move;
 }
 
 /* But keep buttons inside clickable */
-.liquid-glass.draggable-area button {
+.liquid-glass-bar.draggable-area button {
   -webkit-app-region: no-drag;
   cursor: pointer;
 }
 
 /* Add visual feedback for draggable area */
 .draggable-area:hover {
-  background: rgba(255, 255, 255, 0.1);
-  backdrop-filter: blur(2px);
-  -webkit-backdrop-filter: blur(2px);
-}
-
-/* Dark theme liquid glass variant */
-.liquid-glass-dark {
-  background: rgba(0, 0, 0, 0.2);
-  backdrop-filter: blur(16px) saturate(180%) brightness(80%);
-  -webkit-backdrop-filter: blur(16px) saturate(180%) brightness(80%);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  box-shadow: 
-    0 8px 32px rgba(0, 0, 0, 0.3),
-    inset 0 1px 0 rgba(255, 255, 255, 0.1),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.2);
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(20px) saturate(160%) brightness(80%);
+  -webkit-backdrop-filter: blur(20px) saturate(160%) brightness(80%);
 }
 
 /* Ensure content is not blurred */
@@ -116,31 +144,26 @@ button, input, select, textarea, .interactive {
   -webkit-backdrop-filter: none;
 }
 
-/* Chat container specific styling */
+/* Chat container — slightly darker glass */
 .liquid-glass.chat-container {
   min-height: auto;
   height: auto;
-  background: rgba(255, 255, 255, 0.15);
-  backdrop-filter: blur(20px) saturate(200%) brightness(110%);
-  -webkit-backdrop-filter: blur(20px) saturate(200%) brightness(110%);
-  border: 1px solid rgba(255, 255, 255, 0.25);
-  box-shadow: 
-    0 12px 40px rgba(0, 0, 0, 0.15),
-    inset 0 1px 0 rgba(255, 255, 255, 0.2),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.05);
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(20px) saturate(160%) brightness(80%);
+  -webkit-backdrop-filter: blur(20px) saturate(160%) brightness(80%);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  box-shadow: none;
+  overflow: hidden;
 }
 
-/* Thin bar variant of liquid glass - for command bar */
+/* Command bar — dark glass pill */
 .liquid-glass-bar {
-  background: rgba(255, 255, 255, 0.25);
-  backdrop-filter: blur(16px) saturate(180%) brightness(120%);
-  -webkit-backdrop-filter: blur(16px) saturate(180%) brightness(120%);
-  border: 2px solid rgba(255, 255, 255, 0.3);
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(20px) saturate(160%) brightness(85%);
+  -webkit-backdrop-filter: blur(20px) saturate(160%) brightness(85%);
+  border: 1px solid rgba(255, 255, 255, 0.06);
   border-radius: 1rem;
-  box-shadow: 
-    0 8px 32px rgba(0, 0, 0, 0.2),
-    inset 0 1px 0 rgba(255, 255, 255, 0.3),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.1);
+  box-shadow: none;
   position: relative;
   overflow: hidden;
   height: 32px !important;
@@ -159,9 +182,9 @@ button, input, select, textarea, .interactive {
   background: linear-gradient(
     90deg,
     transparent,
-    rgba(255, 255, 255, 0.1),
+    rgba(255, 255, 255, 0.04),
     transparent
   );
-  animation: shimmer 3s ease-in-out infinite;
+  animation: shimmer 4s ease-in-out infinite;
   pointer-events: none;
 }

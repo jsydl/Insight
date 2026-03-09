@@ -1,54 +1,73 @@
 
-import { BrowserWindow, screen } from "electron"
-import { AppState } from "main"
+import { BrowserWindow, screen, app } from "electron"
+import { AppState } from "./main"
 import path from "node:path"
+import { appendAppLog } from "./logger"
 
 const isDev = process.env.NODE_ENV === "development"
-
-const startUrl = isDev
-  ? "http://localhost:5180"
-  : `file://${path.join(__dirname, "../dist/index.html")}`
 
 export class WindowHelper {
   private mainWindow: BrowserWindow | null = null
   private isWindowVisible: boolean = false
   private windowPosition: { x: number; y: number } | null = null
   private windowSize: { width: number; height: number } | null = null
+  private hitRegions: Array<{ x: number; y: number; width: number; height: number }> = []
+  private hitTestInterval: ReturnType<typeof setInterval> | null = null
+  private ignoreMouseState: boolean | null = null
   private appState: AppState
+
+  // Position saved before toggle-off, restored on toggle-on
+  private savedTogglePosition: { x: number; y: number } | null = null
+
+  // Brief lock to prevent ResizeObserver from overriding position right after show
+  private dimensionLock: boolean = false
+  private showFallbackTimer: ReturnType<typeof setTimeout> | null = null
+  private dimensionUnlockTimer: ReturnType<typeof setTimeout> | null = null
 
   // Initialize with explicit number type and 0 value
   private screenWidth: number = 0
   private screenHeight: number = 0
-  private step: number = 0
+  private step: number = 50
   private currentX: number = 0
   private currentY: number = 0
+
+  // ── Tweak these to adjust startup position ──
+  // STARTUP_Y_OFFSET: pixels from top of screen (increase to move bubble down)
+  private static readonly STARTUP_Y_OFFSET = 6
 
   constructor(appState: AppState) {
     this.appState = appState
   }
 
+  private log(message: string): void {
+    appendAppLog(`[WindowHelper] ${message}`)
+  }
+
   public setWindowDimensions(width: number, height: number): void {
     if (!this.mainWindow || this.mainWindow.isDestroyed()) return
+    // Don't update dimensions while window is hidden or just being restored
+    if (this.dimensionLock || !this.isWindowVisible) return
 
     // Get current window position
     const [currentX, currentY] = this.mainWindow.getPosition()
 
     // Get screen dimensions
     const primaryDisplay = screen.getPrimaryDisplay()
-    const workArea = primaryDisplay.workAreaSize
+    const workArea = primaryDisplay.workArea
 
-    // Use 75% width if debugging has occurred, otherwise use 60%
+    // Use 50% width by default (previously 75% for debug mode)
     const maxAllowedWidth = Math.floor(
-      workArea.width * (this.appState.getHasDebugged() ? 0.75 : 0.5)
+      workArea.width * 0.5
     )
 
     // Ensure width doesn't exceed max allowed width and height is reasonable
-    const newWidth = Math.min(width + 32, maxAllowedWidth)
+    const newWidth = Math.min(width, maxAllowedWidth)
     const newHeight = Math.ceil(height)
 
-    // Center the window horizontally if it would go off screen
-    const maxX = workArea.width - newWidth
-    const newX = Math.min(Math.max(currentX, 0), maxX)
+    // Keep current X position — only clamp if off screen
+    const minX = workArea.x
+    const maxX = workArea.x + workArea.width - newWidth
+    const newX = Math.min(Math.max(currentX, minX), maxX)
 
     // Update window bounds
     this.mainWindow.setBounds({
@@ -62,22 +81,81 @@ export class WindowHelper {
     this.windowPosition = { x: newX, y: currentY }
     this.windowSize = { width: newWidth, height: newHeight }
     this.currentX = newX
+    this.currentY = currentY
+    this.updateMouseIgnoreState()
+  }
+
+  public setHitRegions(regions: Array<{ x: number; y: number; width: number; height: number }>): void {
+    this.hitRegions = regions.filter(region => region.width > 0 && region.height > 0)
+    this.updateMouseIgnoreState()
+  }
+
+  private startHitTestLoop(): void {
+    this.stopHitTestLoop()
+    this.hitTestInterval = setInterval(() => {
+      this.updateMouseIgnoreState()
+    }, 40)
+  }
+
+  private stopHitTestLoop(): void {
+    if (this.hitTestInterval) {
+      clearInterval(this.hitTestInterval)
+      this.hitTestInterval = null
+    }
+  }
+
+  private updateMouseIgnoreState(): void {
+    if (!this.mainWindow || this.mainWindow.isDestroyed() || !this.isWindowVisible) return
+    if (this.hitRegions.length === 0) {
+      if (this.ignoreMouseState !== false) {
+        this.mainWindow.setIgnoreMouseEvents(false)
+        this.ignoreMouseState = false
+      }
+      return
+    }
+
+    const cursor = screen.getCursorScreenPoint()
+    const bounds = this.mainWindow.getBounds()
+    const localX = cursor.x - bounds.x
+    const localY = cursor.y - bounds.y
+    const insideWindow = localX >= 0 && localY >= 0 && localX < bounds.width && localY < bounds.height
+
+    const overHitRegion = insideWindow && this.hitRegions.some(region => (
+      localX >= region.x &&
+      localY >= region.y &&
+      localX < region.x + region.width &&
+      localY < region.y + region.height
+    ))
+
+    const shouldIgnore = insideWindow ? !overHitRegion : true
+    if (this.ignoreMouseState !== shouldIgnore) {
+      this.mainWindow.setIgnoreMouseEvents(shouldIgnore, { forward: true })
+      this.ignoreMouseState = shouldIgnore
+    }
   }
 
   public createWindow(): void {
-    if (this.mainWindow !== null) return
+    this.log('createWindow called')
+    if (this.mainWindow !== null) {
+      this.log('createWindow: mainWindow already exists, returning')
+      return
+    }
 
+    this.log('createWindow: getting primary display')
     const primaryDisplay = screen.getPrimaryDisplay()
-    const workArea = primaryDisplay.workAreaSize
+    const workArea = primaryDisplay.workArea
     this.screenWidth = workArea.width
     this.screenHeight = workArea.height
+    this.log('createWindow: got workArea: ' + JSON.stringify(workArea))
 
     
+    // Start at horizontal center, near top of screen
+    const startX = workArea.x + Math.floor((workArea.width - 320) / 2)
+    const startY = workArea.y + WindowHelper.STARTUP_Y_OFFSET
+
     const windowSettings: Electron.BrowserWindowConstructorOptions = {
-      width: 400,
-      height: 600,
-      minWidth: 300,
-      minHeight: 200,
+      width: 350,
+      height: 60,
       webPreferences: {
         nodeIntegration: true,
         contextIsolation: true,
@@ -91,17 +169,28 @@ export class WindowHelper {
       hasShadow: false,
       backgroundColor: "#00000000",
       focusable: true,
-      resizable: true,
+      resizable: false,
       movable: true,
-      x: 100, // Start at a visible position
-      y: 100
+      x: startX,
+      y: startY
     }
 
+    this.log('createWindow: creating BrowserWindow')
     this.mainWindow = new BrowserWindow(windowSettings)
-    // this.mainWindow.webContents.openDevTools()
+    this.log('createWindow: BrowserWindow created')
+
+    // DevTools: only open when explicitly requested via OPEN_DEVTOOLS=1 env var.
+    // Do NOT auto-open in dev mode — it causes a dimension overlay and Autofill errors.
+    if (process.env.OPEN_DEVTOOLS === '1') {
+      this.log('createWindow: opening devtools')
+      this.mainWindow.webContents.openDevTools({ mode: 'detach' })
+    }
+
     this.mainWindow.setContentProtection(true)
+    this.log('createWindow: setContentProtection(true)')
 
     if (process.platform === "darwin") {
+      this.log('createWindow: platform is darwin, setting macOS options')
       this.mainWindow.setVisibleOnAllWorkspaces(true, {
         visibleOnFullScreen: true
       })
@@ -109,6 +198,7 @@ export class WindowHelper {
       this.mainWindow.setAlwaysOnTop(true, "floating")
     }
     if (process.platform === "linux") {
+      this.log('createWindow: platform is linux, setting Linux options')
       // Linux-specific optimizations for better compatibility
       if (this.mainWindow.setHasShadow) {
         this.mainWindow.setHasShadow(false)
@@ -118,22 +208,58 @@ export class WindowHelper {
     } 
     this.mainWindow.setSkipTaskbar(true)
     this.mainWindow.setAlwaysOnTop(true)
+    this.log('createWindow: setSkipTaskbar/AlwaysOnTop')
 
-    this.mainWindow.loadURL(startUrl).catch((err) => {
-      console.error("Failed to load URL:", err)
-    })
+    if (isDev) {
+      this.log("Loading dev URL: http://localhost:5180")
+      this.mainWindow.loadURL("http://localhost:5180").catch((err) => {
+        this.log("Failed to load dev URL: " + err)
+      })
+    } else {
+      const indexPath = path.join(app.getAppPath(), "dist", "index.html")
+      this.log("Loading file: " + indexPath)
+      this.mainWindow.loadFile(indexPath).then(() => {
+        this.log('loadFile resolved')
+      }).catch((err) => {
+        this.log("Failed to load file: " + err)
+      })
+    }
 
-    // Show window after loading URL and center it
+    // Show window after loading URL — use initial position (don't re-center)
     this.mainWindow.once('ready-to-show', () => {
+      this.log('mainWindow ready-to-show')
       if (this.mainWindow) {
-        // Center the window first
-        this.centerWindow()
+        // Only re-center if window is somehow off-screen (edge case)
+        const bounds = this.mainWindow.getBounds()
+        const primaryDisplay = screen.getPrimaryDisplay()
+        const workArea = primaryDisplay.workArea
+        const outOfBounds =
+          bounds.x < workArea.x ||
+          bounds.x > workArea.x + workArea.width ||
+          bounds.y < workArea.y ||
+          bounds.y > workArea.y + workArea.height
+        if (outOfBounds) {
+          this.log("Window appears off-screen, centering as fallback")
+          this.centerWindow()
+        }
+        this.log('calling mainWindow.show()')
         this.mainWindow.show()
+        this.log('calling mainWindow.focus()')
         this.mainWindow.focus()
         this.mainWindow.setAlwaysOnTop(true)
-        console.log("Window is now visible and centered")
+        this.log("Window is now visible at startup position")
       }
     })
+
+    // Fallback: force show after 3 seconds if ready-to-show hasn't fired
+    this.showFallbackTimer = setTimeout(() => {
+      if (this.mainWindow && !this.mainWindow.isVisible()) {
+        this.log("Force showing window after timeout")
+        this.mainWindow.show()
+        this.mainWindow.focus()
+      }
+      this.showFallbackTimer = null
+    }, 3000)
 
     const bounds = this.mainWindow.getBounds()
     this.windowPosition = { x: bounds.x, y: bounds.y }
@@ -143,6 +269,7 @@ export class WindowHelper {
 
     this.setupWindowListeners()
     this.isWindowVisible = true
+    this.startHitTestLoop()
   }
 
   private setupWindowListeners(): void {
@@ -161,14 +288,26 @@ export class WindowHelper {
       if (this.mainWindow) {
         const bounds = this.mainWindow.getBounds()
         this.windowSize = { width: bounds.width, height: bounds.height }
+        this.updateMouseIgnoreState()
       }
     })
 
     this.mainWindow.on("closed", () => {
+      this.stopHitTestLoop()
+      if (this.showFallbackTimer) {
+        clearTimeout(this.showFallbackTimer)
+        this.showFallbackTimer = null
+      }
+      if (this.dimensionUnlockTimer) {
+        clearTimeout(this.dimensionUnlockTimer)
+        this.dimensionUnlockTimer = null
+      }
       this.mainWindow = null
       this.isWindowVisible = false
       this.windowPosition = null
       this.windowSize = null
+      this.hitRegions = []
+      this.ignoreMouseState = null
     })
   }
 
@@ -182,24 +321,42 @@ export class WindowHelper {
 
   public hideMainWindow(): void {
     if (!this.mainWindow || this.mainWindow.isDestroyed()) {
-      console.warn("Main window does not exist or is destroyed.")
+      this.log("Main window does not exist or is destroyed.")
       return
     }
 
+    // Save current position so toggle-on restores it
     const bounds = this.mainWindow.getBounds()
+    this.savedTogglePosition = { x: bounds.x, y: bounds.y }
     this.windowPosition = { x: bounds.x, y: bounds.y }
     this.windowSize = { width: bounds.width, height: bounds.height }
     this.mainWindow.hide()
     this.isWindowVisible = false
+    this.mainWindow.setIgnoreMouseEvents(false)
+    this.ignoreMouseState = false
   }
 
   public showMainWindow(): void {
     if (!this.mainWindow || this.mainWindow.isDestroyed()) {
-      console.warn("Main window does not exist or is destroyed.")
+      this.log("Main window does not exist or is destroyed.")
       return
     }
 
-    if (this.windowPosition && this.windowSize) {
+    // Lock dimensions briefly so ResizeObserver doesn't override our position
+    this.dimensionLock = true
+
+    // Restore to the position it was at before toggle-off
+    if (this.savedTogglePosition && this.windowSize) {
+      this.mainWindow.setBounds({
+        x: this.savedTogglePosition.x,
+        y: this.savedTogglePosition.y,
+        width: this.windowSize.width,
+        height: this.windowSize.height
+      })
+      this.windowPosition = { ...this.savedTogglePosition }
+      this.currentX = this.savedTogglePosition.x
+      this.currentY = this.savedTogglePosition.y
+    } else if (this.windowPosition && this.windowSize) {
       this.mainWindow.setBounds({
         x: this.windowPosition.x,
         y: this.windowPosition.y,
@@ -209,8 +366,18 @@ export class WindowHelper {
     }
 
     this.mainWindow.showInactive()
-
+    this.mainWindow.setAlwaysOnTop(true, "floating")
     this.isWindowVisible = true
+    this.updateMouseIgnoreState()
+
+    // Release dimension lock after a short delay
+    if (this.dimensionUnlockTimer) {
+      clearTimeout(this.dimensionUnlockTimer)
+    }
+    this.dimensionUnlockTimer = setTimeout(() => {
+      this.dimensionLock = false
+      this.dimensionUnlockTimer = null
+    }, 300)
   }
 
   public toggleMainWindow(): void {
@@ -227,35 +394,32 @@ export class WindowHelper {
     }
 
     const primaryDisplay = screen.getPrimaryDisplay()
-    const workArea = primaryDisplay.workAreaSize
+    const workArea = primaryDisplay.workArea
     
-    // Get current window size or use defaults
     const windowBounds = this.mainWindow.getBounds()
-    const windowWidth = windowBounds.width || 400
-    const windowHeight = windowBounds.height || 600
+    const windowWidth = windowBounds.width || 350
+    const windowHeight = windowBounds.height || 50
     
-    // Calculate center position
-    const centerX = Math.floor((workArea.width - windowWidth) / 2)
-    const centerY = Math.floor((workArea.height - windowHeight) / 2)
+    // Horizontal center, near top of screen
+    const centerX = workArea.x + Math.floor((workArea.width - windowWidth) / 2)
+    const topY = workArea.y + WindowHelper.STARTUP_Y_OFFSET
     
-    // Set window position
     this.mainWindow.setBounds({
       x: centerX,
-      y: centerY,
+      y: topY,
       width: windowWidth,
       height: windowHeight
     })
     
-    // Update internal state
-    this.windowPosition = { x: centerX, y: centerY }
+    this.windowPosition = { x: centerX, y: topY }
     this.windowSize = { width: windowWidth, height: windowHeight }
     this.currentX = centerX
-    this.currentY = centerY
+    this.currentY = topY
   }
 
   public centerAndShowWindow(): void {
     if (!this.mainWindow || this.mainWindow.isDestroyed()) {
-      console.warn("Main window does not exist or is destroyed.")
+      this.log("Main window does not exist or is destroyed.")
       return
     }
 
@@ -264,8 +428,47 @@ export class WindowHelper {
     this.mainWindow.focus()
     this.mainWindow.setAlwaysOnTop(true)
     this.isWindowVisible = true
+    this.updateMouseIgnoreState()
     
-    console.log(`Window centered and shown`)
+    this.log("Window centered and shown")
+  }
+
+  /**
+   * Reset position to center without changing visibility.
+   * Used by tray right-click to re-center regardless of toggle state.
+   */
+  public resetToCenter(): void {
+    if (!this.mainWindow || this.mainWindow.isDestroyed()) return
+
+    const primaryDisplay = screen.getPrimaryDisplay()
+    const workArea = primaryDisplay.workArea
+    const windowBounds = this.mainWindow.getBounds()
+    const windowWidth = windowBounds.width || 350
+    const windowHeight = windowBounds.height || 50
+
+    const centerX = workArea.x + Math.floor((workArea.width - windowWidth) / 2)
+    const topY = workArea.y + WindowHelper.STARTUP_Y_OFFSET
+
+    // Update internal position state (even if hidden)
+    this.windowPosition = { x: centerX, y: topY }
+    this.windowSize = { width: windowWidth, height: windowHeight }
+    this.currentX = centerX
+    this.currentY = topY
+    this.savedTogglePosition = { x: centerX, y: topY }
+
+    if (this.isWindowVisible) {
+      // If visible, move the window now
+      this.mainWindow.setBounds({
+        x: centerX,
+        y: topY,
+        width: windowWidth,
+        height: windowHeight
+      })
+      this.updateMouseIgnoreState()
+    }
+    // If hidden, the saved position will be used when toggle-on happens
+
+    this.log(`Window position reset to center (visible=${this.isWindowVisible})`)
   }
 
   // New methods for window movement

@@ -1,268 +1,136 @@
-# [Sponsored by Recall AI - API for desktop recording](https://www.recall.ai/product/desktop-recording-sdk?utm_source=github&utm_medium=sponsorship&utm_campaign=prat011-free-cluely)
-If you’re looking for a hosted desktop recording API, consider checking out [Recall.ai](https://www.recall.ai/product/desktop-recording-sdk?utm_source=github&utm_medium=sponsorship&utm_campaign=prat011-free-cluely), an API that records Zoom, Google Meet, Microsoft Teams, in-person meetings, and more.
 
-# Cluely
+# Insight
 
-[Cluely](https://cluely.com) - The invisible desktop assistant that provides real-time insights, answers, and support during meetings, interviews, presentations, and professional conversations.
+Insight is a lightweight Electron desktop assistant for real-time help during meetings, interviews, and live sessions.
 
+## What It Does
 
-## 🚀 Quick Start Guide
+- Real-time transcription with ElevenLabs Scribe v2 Realtime
+- Context-aware AI chat with Gemini
+- Screenshot capture and analysis with Gemini vision
+- Personality presets and custom personality prompts
+- Always-on-top translucent window with keyboard control
 
-### Prerequisites
-- Make sure you have Node.js installed on your computer
-- Git installed on your computer  
-- **Either** a Gemini API key (get it from [Google AI Studio](https://makersuite.google.com/app/apikey))
-- **Or** Ollama installed locally for private LLM usage (recommended for privacy)
+## Requirements
 
-### Installation Steps
+- Node.js 18+
+- npm
+- Gemini API key
+- ElevenLabs API key
 
-1. Clone the repository:
+Get keys:
+
+- Gemini: https://makersuite.google.com/app/apikey
+- ElevenLabs: https://elevenlabs.io/app/settings/api-keys
+
+## Setup
+
 ```bash
-git clone [repository-url]
-cd free-cluely
-```
-
-2. Install dependencies:
-```bash
-# If you encounter Sharp/Python build errors, use this:
-SHARP_IGNORE_GLOBAL_LIBVIPS=1 npm install --ignore-scripts
-npm rebuild sharp
-
-# Or for normal installation:
+git clone <https://github.com/jsydl/Insight>
+cd insight
 npm install
 ```
 
-3. Set up environment variables:
-   - Create a file named `.env` in the root folder
-   
-   **For Gemini (Cloud AI):**
-   ```env
-   GEMINI_API_KEY=your_api_key_here
-   ```
-   
-   **For Ollama (Local/Private AI):**
-   ```env
-   USE_OLLAMA=true
-   OLLAMA_MODEL=llama3.2
-   OLLAMA_URL=http://localhost:11434
-   ```
-   
-   - Save the file
+Create `.env` in the project root:
 
-### Running the App
+```env
+GEMINI_API_KEY=your_gemini_key
+ELEVENLABS_API_KEY=your_elevenlabs_key
+# optional
+ELEVENLABS_REALTIME_TOKEN=your_optional_realtime_token
+```
 
-#### Method 1: Development Mode (Recommended for first run)
-1. Start the development server:
+## Run
+
+Development:
+
 ```bash
 npm start
 ```
 
-This command automatically:
-- Starts the Vite dev server on port 5180
-- Waits for the server to be ready
-- Launches the Electron app
+Production build:
 
-#### Method 2: Production Build
 ```bash
 npm run dist
 ```
-The built app will be in the `release` folder.
 
-## 🤖 AI Provider Options
+Packaged output is written to `release-build/`.
 
-### Ollama (Recommended for Privacy)
-**Pros:**
-- 100% private - data never leaves your computer
-- No API costs
-- Works offline
-- Supports many models: llama3.2, codellama, mistral, etc.
+## Keyboard Shortcuts
 
-**Setup:**
-1. Install Ollama from [ollama.ai](https://ollama.ai)
-2. Pull a model: `ollama pull llama3.2`
-3. Set environment variables as shown above
+- `Ctrl/Cmd + Shift + Space`: Center and show main window
+- `Ctrl/Cmd + B`: Toggle main window
+- `Ctrl/Cmd + R`: Reset interview/session context
+- `Ctrl/Cmd + Left/Right/Up/Down`: Move window
+- `Ctrl/Cmd + H`: Trigger screenshot capture
 
-### Google Gemini
-**Pros:**
-- Latest AI technology
-- Fastest responses
-- Best accuracy for complex tasks
+## UI Controls Reference
 
-**Cons:**
-- Requires API key and internet
-- Data sent to Google servers
-- Usage costs apply
+### Main Bubble Bar
 
-### ⚠️ Important Notes
+- `⊕` button (left-click): Toggle show/hide for the main window.
+- `Record` button (left-click): Start realtime transcription. While recording, the button changes to `Stop` and clicking again stops transcription.
+- `Record` button (right-click): Clears transcript log, clears generated Q/A items, and clears transcription context in memory.
+- Transcript arrow button `v/^` (left-click): Show or hide the transcript dropdown panel.
+- Transcript arrow button `v/^` (right-click): Clear transcript log and clear transcription context.
+- `Chat` button (left-click): Open or close the chat panel.
+- `Chat` button (right-click): Clear chat messages and clear conversation history context.
+- Red sign-out icon (left-click): Quit the app.
 
-1. **Closing the App**: 
-   - Press `Cmd + Q` (Mac) or `Ctrl + Q` (Windows/Linux) to quit
-   - Or use Activity Monitor/Task Manager to close `Interview Coder`
-   - The X button currently doesn't work (known issue)
+### Chat Panel (below bubble bar)
 
-2. **If the app doesn't start**:
-   - Make sure no other app is using port 5180
-   - Try killing existing processes:
-     ```bash
-     # Find processes using port 5180
-     lsof -i :5180
-     # Kill them (replace [PID] with the process ID)
-     kill [PID]
-     ```
-   - For Ollama users: Make sure Ollama is running (`ollama serve`)
+- Message input: Type a message for Gemini chat context.
+- Send button or `Enter`: Send the current chat message.
+- Screenshot button (picture icon): Capture screen and analyze it with Gemini Vision, then append the result to chat.
 
-3. **Keyboard Shortcuts**:
-   - `Cmd/Ctrl + B`: Toggle window visibility
-   - `Cmd/Ctrl + H`: Take screenshot
-   - 'Cmd/Enter': Get solution
-   - `Cmd/Ctrl + Arrow Keys`: Move window
+### Transcript and Q/A Panels
 
-## 🔧 Troubleshooting
+- Transcript dropdown: Shows latest committed transcript chunks plus current partial fragment.
+- Q/A panel: Shows transcript-derived question/answer pairs when the model decides a transcript line is a real question.
+- Q/A filtering behavior: Non-question transcript text is skipped automatically.
 
-### Windows Issues Fixed 
-- **UI not loading**: Port mismatch resolved
-- **Electron crashes**: Improved error handling  
-- **Build failures**: Production config updated
-- **Window focus problems**: Platform-specific fixes applied
+## Tray Icon Behavior
 
-### Ubuntu/Linux Issues Fixed 
-- **Window interaction**: Fixed focusable settings
-- **Installation confusion**: Clear setup instructions
-- **Missing dependencies**: All requirements documented
+- Tray icon left-click: Toggle the main window visibility (preserves last position).
+- Tray icon right-click: Open tray menu.
+- Tray menu `Reset Position`: Re-center window to default position.
+- Tray menu `Personality > <Preset>`: Apply selected personality preset.
+- Tray menu `Personality > Custom...`: Open standalone personality editor window.
+- Tray menu `Quit`: Exit the app.
 
-### Common Solutions
+## Personality Window (Custom...)
 
-#### Sharp/Python Build Errors
-If you see `gyp ERR! find Python` or Sharp build errors:
-```bash
-# Solution 1: Use prebuilt binaries
-rm -rf node_modules package-lock.json
-SHARP_IGNORE_GLOBAL_LIBVIPS=1 npm install --ignore-scripts
-npm rebuild sharp
+- Opens as a small standalone window from tray menu.
+- `Chat` tab: Edit custom personality used by chat responses.
+- `Transcription` tab: Edit custom personality used by transcription Q/A behavior.
+- `Save Custom Personality`: Persists your custom text (it is paraphrased into a system prompt).
 
-# Solution 2: Or install Python (if you prefer building from source)
-brew install python3  # macOS
-# Then run: npm install
-```
+## Useful Commands
 
-#### General Installation Issues
-If you see other errors:
-1. Delete the `node_modules` folder
-2. Delete `package-lock.json` 
-3. Run `npm install` again
-4. Try running with `npm start`
+- `npm run clean`: Remove build artifacts
+- `npm run build`: Build renderer
+- `npm run build:electron`: Build Electron main/preload
+- `npm run app:build`: Build full app package
 
-### Platform-Specific Notes
-- **Windows**: App now works on Windows 10/11
-- **Ubuntu/Linux**: Tested on Ubuntu 20.04+ and most Linux distros  
-- **macOS**: Native support with proper window management
+## Packaged App Environment Loading
 
-## Key Features
+In production, `.env` is loaded from runtime candidates including:
 
-### **Invisible AI Assistant**
-- Translucent, always-on-top window that's barely noticeable
-- Hide/show instantly with global hotkeys
-- Works seamlessly across all applications
+- Next to the executable
+- One folder above the executable
+- `%APPDATA%/Insight/.env` (Windows)
+- Resources/app paths
 
-### **Smart Screenshot Analysis** 
-- Take screenshots of any content with `Cmd/Ctrl + H`
-- AI analyzes images, documents, presentations, or problems
-- Get instant explanations, answers, and solutions
+If realtime transcription fails in packaged builds, check:
 
-### **Audio Intelligence**
-- Process audio files and recordings
-- Real-time transcription and analysis
-- Perfect for meeting notes and content review
+- `%APPDATA%/Insight/log.txt`
 
-### **Contextual Chat**
-- Chat with AI about anything you see on screen
-- Maintains conversation context
-- Ask follow-up questions for deeper insights
+## Troubleshooting
 
-### **Privacy-First Design**
-- **Local AI Option**: Use Ollama for 100% private processing
-- **Cloud Option**: Google Gemini for maximum performance
-- Screenshots auto-deleted after processing
-- No data tracking or storage
+- App does not open in dev: check that port `5180` is free.
+- Transcription unavailable: verify `ELEVENLABS_API_KEY` is set.
+- Gemini errors: verify `GEMINI_API_KEY` is set and valid.
 
-### **Cross-Platform Support**
-- **Windows 10/11** - Full support with native performance
-- **Ubuntu/Linux** - Optimized for all major distributions  
-- **macOS** - Native window management and shortcuts
+## License
 
-## Use Cases
-
-### **Academic & Learning**
-```
-✓ Live presentation support during classes
-✓ Quick research during online exams  
-✓ Language translation and explanations
-✓ Math and science problem solving
-```
-
-### **Professional Meetings**
-```
-✓ Sales call preparation and objection handling
-✓ Technical interview coaching
-✓ Client presentation support
-✓ Real-time fact-checking and data lookup
-```
-
-### **Development & Tech**
-```
-✓ Debug error messages instantly
-✓ Code explanation and optimization
-✓ Documentation and API references
-✓ Algorithm and architecture guidance
-```
-
-## Why Choose Free Cluely?
-
-| Feature | Free Cluely | Commercial Alternatives |
-|---------|-------------|------------------------|
-| **Cost** | 100% Free | $29-99/month |
-| **Privacy** | Local AI Option | Cloud-only |
-| **Open Source** | Full transparency | Closed source |
-| **Customization** | Fully customizable | Limited options |
-| **Data Control** | You own your data | Third-party servers |
-| **Offline Mode** | Yes (with Ollama) | No |
-
-## Technical Details
-
-### **AI Models Supported**
-- **Gemini 2.0 Flash** - Latest Google AI with vision capabilities
-- **Llama 3.2** - Meta's advanced local model via Ollama
-- **CodeLlama** - Specialized coding assistance
-- **Mistral** - Lightweight, fast responses
-- **Custom Models** - Any Ollama-compatible model
-
-### **System Requirements**
-```bash
-Minimum:  4GB RAM, Dual-core CPU, 2GB storage
-Recommended: 8GB+ RAM, Quad-core CPU, 5GB+ storage
-Optimal: 16GB+ RAM for local AI models
-```
-
-## 🤝 Contributing
-
-This project welcomes contributions! While I have limited time for active maintenance, I'll review and merge quality PRs.
-
-**Ways to contribute:**
-- 🐛 Bug fixes and stability improvements
-- ✨ New features and AI model integrations  
-- 📚 Documentation and tutorial improvements
-- 🌍 Translations and internationalization
-- 🎨 UI/UX enhancements
-
-For commercial integrations or custom development, reach out on [Twitter](https://x.com/prathitjoshi_)
-
-## 📄 License
-
-ISC License - Free for personal and commercial use.
-
----
-
-**⭐ Star this repo if Free Cluely helps you succeed in meetings, interviews, or presentations!**
-
-### 🏷️ Tags
-`ai-assistant` `meeting-notes` `interview-helper` `presentation-support` `ollama` `gemini-ai` `electron-app` `cross-platform` `privacy-focused` `open-source` `local-ai` `screenshot-analysis` `academic-helper` `sales-assistant` `coding-companion`
+ISC

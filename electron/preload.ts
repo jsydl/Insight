@@ -1,94 +1,42 @@
 import { contextBridge, ipcRenderer } from "electron"
 
-// Types for the exposed Electron API
-interface ElectronAPI {
-  updateContentDimensions: (dimensions: {
-    width: number
-    height: number
-  }) => Promise<void>
-  getScreenshots: () => Promise<Array<{ path: string; preview: string }>>
-  deleteScreenshot: (
-    path: string
-  ) => Promise<{ success: boolean; error?: string }>
-  onScreenshotTaken: (
-    callback: (data: { path: string; preview: string }) => void
-  ) => () => void
-  onSolutionsReady: (callback: (solutions: string) => void) => () => void
-  onResetView: (callback: () => void) => () => void
-  onSolutionStart: (callback: () => void) => () => void
-  onDebugStart: (callback: () => void) => () => void
-  onDebugSuccess: (callback: (data: any) => void) => () => void
-  onSolutionError: (callback: (error: string) => void) => () => void
-  onProcessingNoScreenshots: (callback: () => void) => () => void
-  onProblemExtracted: (callback: (data: any) => void) => () => void
-  onSolutionSuccess: (callback: (data: any) => void) => () => void
-
-  onUnauthorized: (callback: () => void) => () => void
-  onDebugError: (callback: (error: string) => void) => () => void
-  takeScreenshot: () => Promise<void>
-  moveWindowLeft: () => Promise<void>
-  moveWindowRight: () => Promise<void>
-  moveWindowUp: () => Promise<void>
-  moveWindowDown: () => Promise<void>
-  analyzeAudioFromBase64: (data: string, mimeType: string) => Promise<{ text: string; timestamp: number }>
-  analyzeAudioFile: (path: string) => Promise<{ text: string; timestamp: number }>
-  analyzeImageFile: (path: string) => Promise<void>
-  quitApp: () => Promise<void>
-  
-  // LLM Model Management
-  getCurrentLlmConfig: () => Promise<{ provider: "ollama" | "gemini"; model: string; isOllama: boolean }>
-  getAvailableOllamaModels: () => Promise<string[]>
-  switchToOllama: (model?: string, url?: string) => Promise<{ success: boolean; error?: string }>
-  switchToGemini: (apiKey?: string) => Promise<{ success: boolean; error?: string }>
-  testLlmConnection: () => Promise<{ success: boolean; error?: string }>
-  
-  invoke: (channel: string, ...args: any[]) => Promise<any>
+type RealtimeTranscriptPayload = {
+  text: string
+  cumulative: string
+  isFinal: boolean
+  timestamp: number
+  seq: number
 }
 
-export const PROCESSING_EVENTS = {
-  //global states
-  UNAUTHORIZED: "procesing-unauthorized",
-  NO_SCREENSHOTS: "processing-no-screenshots",
+type RealtimeStatusPayload = {
+  status: "starting" | "ready" | "retrying" | "stopped" | "error"
+  message: string
+  active: boolean
+  connected: boolean
+  timestamp: number
+}
 
-  //states for generating the initial solution
-  INITIAL_START: "initial-start",
-  PROBLEM_EXTRACTED: "problem-extracted",
-  SOLUTION_SUCCESS: "solution-success",
-  INITIAL_SOLUTION_ERROR: "solution-error",
+type RawFragmentPayload = {
+  text: string
+  seq: number
+  timestamp: number
+}
 
-  //states for processing the debugging
-  DEBUG_START: "debug-start",
-  DEBUG_SUCCESS: "debug-success",
-  DEBUG_ERROR: "debug-error"
-} as const
+type ScreenshotStatusPayload = {
+  id: string
+  stage: string
+  progress: number
+  detail?: string
+}
 
 // Expose the Electron API to the renderer process
 contextBridge.exposeInMainWorld("electronAPI", {
   updateContentDimensions: (dimensions: { width: number; height: number }) =>
     ipcRenderer.invoke("update-content-dimensions", dimensions),
-  takeScreenshot: () => ipcRenderer.invoke("take-screenshot"),
-  getScreenshots: () => ipcRenderer.invoke("get-screenshots"),
-  deleteScreenshot: (path: string) =>
-    ipcRenderer.invoke("delete-screenshot", path),
+  toggleWindow: () => ipcRenderer.invoke("toggle-window"),
+  quitApp: () => ipcRenderer.invoke("quit-app"),
 
-  // Event listeners
-  onScreenshotTaken: (
-    callback: (data: { path: string; preview: string }) => void
-  ) => {
-    const subscription = (_: any, data: { path: string; preview: string }) =>
-      callback(data)
-    ipcRenderer.on("screenshot-taken", subscription)
-    return () => {
-      ipcRenderer.removeListener("screenshot-taken", subscription)
-    }
-  },
-  onSolutionsReady: (callback: (solutions: string) => void) => {
-    const subscription = (_: any, solutions: string) => callback(solutions)
-    ipcRenderer.on("solutions-ready", subscription)
-    return () => {
-      ipcRenderer.removeListener("solutions-ready", subscription)
-    }
-  },
+  // View events
   onResetView: (callback: () => void) => {
     const subscription = () => callback()
     ipcRenderer.on("reset-view", subscription)
@@ -96,96 +44,61 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.removeListener("reset-view", subscription)
     }
   },
-  onSolutionStart: (callback: () => void) => {
-    const subscription = () => callback()
-    ipcRenderer.on(PROCESSING_EVENTS.INITIAL_START, subscription)
+
+  // Real-time transcription (streaming)
+  startRealtimeTranscription: () => ipcRenderer.invoke("start-realtime-transcription"),
+  stopRealtimeTranscription: () => ipcRenderer.invoke("stop-realtime-transcription"),
+  onRealtimeTranscriptUpdate: (callback: (data: RealtimeTranscriptPayload) => void) => {
+    const subscription = (_event: Electron.IpcRendererEvent, data: RealtimeTranscriptPayload) => callback(data)
+    ipcRenderer.on("realtime-transcript-update", subscription)
     return () => {
-      ipcRenderer.removeListener(PROCESSING_EVENTS.INITIAL_START, subscription)
+      ipcRenderer.removeListener("realtime-transcript-update", subscription)
     }
   },
-  onDebugStart: (callback: () => void) => {
-    const subscription = () => callback()
-    ipcRenderer.on(PROCESSING_EVENTS.DEBUG_START, subscription)
+  onRealtimeTranscriptionStatus: (callback: (data: RealtimeStatusPayload) => void) => {
+    const subscription = (_event: Electron.IpcRendererEvent, data: RealtimeStatusPayload) => callback(data)
+    ipcRenderer.on("realtime-transcription-status", subscription)
     return () => {
-      ipcRenderer.removeListener(PROCESSING_EVENTS.DEBUG_START, subscription)
+      ipcRenderer.removeListener("realtime-transcription-status", subscription)
     }
   },
 
-  onDebugSuccess: (callback: (data: any) => void) => {
-    ipcRenderer.on("debug-success", (_event, data) => callback(data))
+  // Raw transcript fragments (unmerged, for question detection)
+  onRawFragment: (callback: (data: RawFragmentPayload) => void) => {
+    const subscription = (_event: Electron.IpcRendererEvent, data: RawFragmentPayload) => callback(data)
+    ipcRenderer.on("realtime-raw-fragment", subscription)
     return () => {
-      ipcRenderer.removeListener("debug-success", (_event, data) =>
-        callback(data)
-      )
-    }
-  },
-  onDebugError: (callback: (error: string) => void) => {
-    const subscription = (_: any, error: string) => callback(error)
-    ipcRenderer.on(PROCESSING_EVENTS.DEBUG_ERROR, subscription)
-    return () => {
-      ipcRenderer.removeListener(PROCESSING_EVENTS.DEBUG_ERROR, subscription)
-    }
-  },
-  onSolutionError: (callback: (error: string) => void) => {
-    const subscription = (_: any, error: string) => callback(error)
-    ipcRenderer.on(PROCESSING_EVENTS.INITIAL_SOLUTION_ERROR, subscription)
-    return () => {
-      ipcRenderer.removeListener(
-        PROCESSING_EVENTS.INITIAL_SOLUTION_ERROR,
-        subscription
-      )
-    }
-  },
-  onProcessingNoScreenshots: (callback: () => void) => {
-    const subscription = () => callback()
-    ipcRenderer.on(PROCESSING_EVENTS.NO_SCREENSHOTS, subscription)
-    return () => {
-      ipcRenderer.removeListener(PROCESSING_EVENTS.NO_SCREENSHOTS, subscription)
+      ipcRenderer.removeListener("realtime-raw-fragment", subscription)
     }
   },
 
-  onProblemExtracted: (callback: (data: any) => void) => {
-    const subscription = (_: any, data: any) => callback(data)
-    ipcRenderer.on(PROCESSING_EVENTS.PROBLEM_EXTRACTED, subscription)
-    return () => {
-      ipcRenderer.removeListener(
-        PROCESSING_EVENTS.PROBLEM_EXTRACTED,
-        subscription
-      )
-    }
-  },
-  onSolutionSuccess: (callback: (data: any) => void) => {
-    const subscription = (_: any, data: any) => callback(data)
-    ipcRenderer.on(PROCESSING_EVENTS.SOLUTION_SUCCESS, subscription)
-    return () => {
-      ipcRenderer.removeListener(
-        PROCESSING_EVENTS.SOLUTION_SUCCESS,
-        subscription
-      )
-    }
-  },
-  onUnauthorized: (callback: () => void) => {
+  // Screenshot trigger (from global shortcut)
+  onTriggerScreenshot: (callback: () => void) => {
     const subscription = () => callback()
-    ipcRenderer.on(PROCESSING_EVENTS.UNAUTHORIZED, subscription)
+    ipcRenderer.on("trigger-screenshot", subscription)
     return () => {
-      ipcRenderer.removeListener(PROCESSING_EVENTS.UNAUTHORIZED, subscription)
+      ipcRenderer.removeListener("trigger-screenshot", subscription)
     }
   },
-  moveWindowLeft: () => ipcRenderer.invoke("move-window-left"),
-  moveWindowRight: () => ipcRenderer.invoke("move-window-right"),
-  moveWindowUp: () => ipcRenderer.invoke("move-window-up"),
-  moveWindowDown: () => ipcRenderer.invoke("move-window-down"),
-  analyzeAudioFromBase64: (data: string, mimeType: string) => ipcRenderer.invoke("analyze-audio-base64", data, mimeType),
-  analyzeAudioFile: (path: string) => ipcRenderer.invoke("analyze-audio-file", path),
-  analyzeImageFile: (path: string) => ipcRenderer.invoke("analyze-image-file", path),
-  quitApp: () => ipcRenderer.invoke("quit-app"),
-  
-  // LLM Model Management
-  getCurrentLlmConfig: () => ipcRenderer.invoke("get-current-llm-config"),
-  getAvailableOllamaModels: () => ipcRenderer.invoke("get-available-ollama-models"),
-  switchToOllama: (model?: string, url?: string) => ipcRenderer.invoke("switch-to-ollama", model, url),
-  switchToGemini: (apiKey?: string) => ipcRenderer.invoke("switch-to-gemini", apiKey),
-  testLlmConnection: () => ipcRenderer.invoke("test-llm-connection"),
-  
-  invoke: (channel: string, ...args: any[]) => ipcRenderer.invoke(channel, ...args)
-} as ElectronAPI)
+
+  // Screenshot analysis progress events
+  onScreenshotStatus: (callback: (data: ScreenshotStatusPayload) => void) => {
+    const subscription = (_event: Electron.IpcRendererEvent, data: ScreenshotStatusPayload) => callback(data)
+    ipcRenderer.on("screenshot:status", subscription)
+    return () => {
+      ipcRenderer.removeListener("screenshot:status", subscription)
+    }
+  },
+
+  // Personality events from tray / main process
+  onPersonalityChanged: (callback: (presetId: string) => void) => {
+    const subscription = (_event: Electron.IpcRendererEvent, presetId: string) => callback(presetId)
+    ipcRenderer.on("personality-changed", subscription)
+    return () => {
+      ipcRenderer.removeListener("personality-changed", subscription)
+    }
+  },
+
+  // Generic IPC invoke
+  invoke: <T = unknown>(channel: string, ...args: unknown[]) => ipcRenderer.invoke(channel, ...args) as Promise<T>
+})

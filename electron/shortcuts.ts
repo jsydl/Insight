@@ -1,58 +1,32 @@
 import { globalShortcut, app } from "electron"
-import { AppState } from "./main" // Adjust the import path if necessary
+import { AppState } from "./main"
+import { appendAppLog } from "./logger"
 
 export class ShortcutsHelper {
   private appState: AppState
+  private resetAlwaysOnTopTimer: ReturnType<typeof setTimeout> | null = null
 
   constructor(appState: AppState) {
     this.appState = appState
   }
 
+  private log(message: string): void {
+    appendAppLog(`[Shortcuts] ${message}`)
+  }
+
   public registerGlobalShortcuts(): void {
     // Add global shortcut to show/center window
     globalShortcut.register("CommandOrControl+Shift+Space", () => {
-      console.log("Show/Center window shortcut pressed...")
+      this.log("Show/Center window shortcut pressed")
       this.appState.centerAndShowWindow()
     })
 
-    globalShortcut.register("CommandOrControl+H", async () => {
-      const mainWindow = this.appState.getMainWindow()
-      if (mainWindow) {
-        console.log("Taking screenshot...")
-        try {
-          const screenshotPath = await this.appState.takeScreenshot()
-          const preview = await this.appState.getImagePreview(screenshotPath)
-          mainWindow.webContents.send("screenshot-taken", {
-            path: screenshotPath,
-            preview
-          })
-        } catch (error) {
-          console.error("Error capturing screenshot:", error)
-        }
-      }
-    })
-
-    globalShortcut.register("CommandOrControl+Enter", async () => {
-      await this.appState.processingHelper.processScreenshots()
-    })
-
     globalShortcut.register("CommandOrControl+R", () => {
-      console.log(
-        "Command + R pressed. Canceling requests and resetting queues..."
-      )
+      this.log("Command/Ctrl + R pressed. Resetting interview")
 
-      // Cancel ongoing API requests
-      this.appState.processingHelper.cancelOngoingRequests()
+      this.appState.processingHelper.resetInterview()
 
-      // Clear both screenshot queues
-      this.appState.clearQueues()
-
-      console.log("Cleared queues.")
-
-      // Update the view state to 'queue'
-      this.appState.setView("queue")
-
-      // Notify renderer process to switch view to 'queue'
+      // Notify renderer process to reset view or chat if they want
       const mainWindow = this.appState.getMainWindow()
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send("reset-view")
@@ -61,20 +35,20 @@ export class ShortcutsHelper {
 
     // New shortcuts for moving the window
     globalShortcut.register("CommandOrControl+Left", () => {
-      console.log("Command/Ctrl + Left pressed. Moving window left.")
+      this.log("Command/Ctrl + Left pressed. Moving window left")
       this.appState.moveWindowLeft()
     })
 
     globalShortcut.register("CommandOrControl+Right", () => {
-      console.log("Command/Ctrl + Right pressed. Moving window right.")
+      this.log("Command/Ctrl + Right pressed. Moving window right")
       this.appState.moveWindowRight()
     })
     globalShortcut.register("CommandOrControl+Down", () => {
-      console.log("Command/Ctrl + down pressed. Moving window down.")
+      this.log("Command/Ctrl + Down pressed. Moving window down")
       this.appState.moveWindowDown()
     })
     globalShortcut.register("CommandOrControl+Up", () => {
-      console.log("Command/Ctrl + Up pressed. Moving window Up.")
+      this.log("Command/Ctrl + Up pressed. Moving window up")
       this.appState.moveWindowUp()
     })
 
@@ -87,17 +61,34 @@ export class ShortcutsHelper {
         if (process.platform === "darwin") {
           mainWindow.setAlwaysOnTop(true, "normal")
           // Reset alwaysOnTop after a brief delay
-          setTimeout(() => {
+          if (this.resetAlwaysOnTopTimer) {
+            clearTimeout(this.resetAlwaysOnTopTimer)
+          }
+          this.resetAlwaysOnTopTimer = setTimeout(() => {
             if (mainWindow && !mainWindow.isDestroyed()) {
               mainWindow.setAlwaysOnTop(true, "floating")
             }
+            this.resetAlwaysOnTopTimer = null
           }, 100)
         }
       }
     })
 
+    // Screenshot capture shortcut
+    globalShortcut.register("CommandOrControl+H", () => {
+      this.log("Ctrl/Cmd + H pressed. Triggering screenshot capture")
+      const mainWindow = this.appState.getMainWindow()
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send("trigger-screenshot")
+      }
+    })
+
     // Unregister shortcuts when quitting
     app.on("will-quit", () => {
+      if (this.resetAlwaysOnTopTimer) {
+        clearTimeout(this.resetAlwaysOnTopTimer)
+        this.resetAlwaysOnTopTimer = null
+      }
       globalShortcut.unregisterAll()
     })
   }

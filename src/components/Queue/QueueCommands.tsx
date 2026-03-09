@@ -1,257 +1,300 @@
 import React, { useState, useEffect, useRef } from "react"
-import { IoLogOutOutline } from "react-icons/io5"
-import { Dialog, DialogContent, DialogClose } from "../ui/dialog"
+import { IoLogOutOutline, IoChevronDown, IoChevronUp } from "react-icons/io5"
 
 interface QueueCommandsProps {
-  onTooltipVisibilityChange: (visible: boolean, height: number) => void
-  screenshots: Array<{ path: string; preview: string }>
   onChatToggle: () => void
-  onSettingsToggle: () => void
+  onChatClear?: () => void
+}
+
+interface TranscriptionItem {
+  id: string
+  question: string
+  answer: string | null
+  isLoading: boolean
+  timestamp: number
+}
+
+type AnswerQuestionResult = {
+  success: boolean
+  skipped?: boolean
+  answer?: string | null
+  error?: string
 }
 
 const QueueCommands: React.FC<QueueCommandsProps> = ({
-  onTooltipVisibilityChange,
-  screenshots,
   onChatToggle,
-  onSettingsToggle
+  onChatClear,
 }) => {
-  const [isTooltipVisible, setIsTooltipVisible] = useState(false)
-  const tooltipRef = useRef<HTMLDivElement>(null)
   const [isRecording, setIsRecording] = useState(false)
-  const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null)
-  const [audioResult, setAudioResult] = useState<string | null>(null)
-  const chunks = useRef<Blob[]>([])
-  // Remove all chat-related state, handlers, and the Dialog overlay from this file.
+  const [transcriptions, setTranscriptions] = useState<TranscriptionItem[]>([])
+  const [rawTranscripts, setRawTranscripts] = useState<string[]>([])
+  const [livePartialTranscript, setLivePartialTranscript] = useState("")
+  const [showTranscriptLog, setShowTranscriptLog] = useState(false)
+  const isRecordingRef = useRef(false)
+  const lastCommittedTextRef = useRef("")
 
-  useEffect(() => {
-    let tooltipHeight = 0
-    if (tooltipRef.current && isTooltipVisible) {
-      tooltipHeight = tooltipRef.current.offsetHeight + 10
+  const handleToggleWindow = () => {
+    window.electronAPI.toggleWindow()
+  }
+
+  // Unified pipeline: send every transcript chunk to the model.
+  // The model itself decides whether it's worth answering (returns skipped=true if not).
+  const processTranscription = async (text: string) => {
+    if (!text.trim()) return
+
+    const itemId = Date.now().toString()
+    const newItem: TranscriptionItem = {
+      id: itemId,
+      question: text,
+      answer: null,
+      isLoading: true,
+      timestamp: Date.now()
     }
-    onTooltipVisibilityChange(isTooltipVisible, tooltipHeight)
-  }, [isTooltipVisible])
 
-  const handleMouseEnter = () => {
-    setIsTooltipVisible(true)
+    setTranscriptions((prev) => [newItem, ...prev])
+
+    try {
+      const result = await window.electronAPI.invoke<AnswerQuestionResult>("answer-question", text)
+
+      if (result.success && !result.skipped && typeof result.answer === "string") {
+        const answerText = result.answer
+        // Model provided an answer — show it
+        setTranscriptions((prev) =>
+          prev.map((item) =>
+            item.id === itemId
+              ? { ...item, answer: answerText, isLoading: false }
+              : item
+          )
+        )
+      } else {
+        // Model skipped or failed — remove the pending item silently
+        setTranscriptions((prev) => prev.filter((item) => item.id !== itemId))
+      }
+    } catch (err) {
+      console.error('Error processing transcription:', err)
+      setTranscriptions((prev) => prev.filter((item) => item.id !== itemId))
+    }
   }
 
-  const handleMouseLeave = () => {
-    setIsTooltipVisible(false)
-  }
+  // Ref to always call the latest processTranscription (avoids stale closure in useEffect)
+  const processTranscriptionRef = useRef(processTranscription)
+  processTranscriptionRef.current = processTranscription
 
   const handleRecordClick = async () => {
-    if (!isRecording) {
-      // Start recording
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-        const recorder = new MediaRecorder(stream)
-        recorder.ondataavailable = (e) => chunks.current.push(e.data)
-        recorder.onstop = async () => {
-          const blob = new Blob(chunks.current, { type: chunks.current[0]?.type || 'audio/webm' })
-          chunks.current = []
-          const reader = new FileReader()
-          reader.onloadend = async () => {
-            const base64Data = (reader.result as string).split(',')[1]
-            try {
-              const result = await window.electronAPI.analyzeAudioFromBase64(base64Data, blob.type)
-              setAudioResult(result.text)
-            } catch (err) {
-              setAudioResult('Audio analysis failed.')
-            }
-          }
-          reader.readAsDataURL(blob)
-        }
-        setMediaRecorder(recorder)
-        recorder.start()
-        setIsRecording(true)
-      } catch (err) {
-        setAudioResult('Could not start recording.')
-      }
-    } else {
+    if (isRecordingRef.current) {
       // Stop recording
-      mediaRecorder?.stop()
+      isRecordingRef.current = false
       setIsRecording(false)
-      setMediaRecorder(null)
+      try {
+        await window.electronAPI.stopRealtimeTranscription()
+      } catch (err) {
+        console.error("Error stopping realtime transcription:", err)
+      }
+      return
+    }
+
+    // Start recording
+    isRecordingRef.current = true
+    setIsRecording(true)
+
+    try {
+      await window.electronAPI.startRealtimeTranscription()
+    } catch (err) {
+      console.error("Error starting realtime transcription:", err)
+      isRecordingRef.current = false
+      setIsRecording(false)
     }
   }
 
-  // Remove handleChatSend function
+  const handleClearTranscripts = () => {
+    setRawTranscripts([])
+    setLivePartialTranscript("")
+    setShowTranscriptLog(false)
+    window.electronAPI.invoke("clear-transcription-context").catch(() => {})
+  }
+
+  const handleClearHistory = () => {
+    setTranscriptions([])
+    setRawTranscripts([])
+    setLivePartialTranscript("")
+    setShowTranscriptLog(false)
+    lastCommittedTextRef.current = ""
+    window.electronAPI.invoke("clear-transcription-context").catch(() => {})
+  }
+
+  useEffect(() => {
+    // Raw fragment listener — update the single live partial line only.
+    const cleanupRaw = window.electronAPI.onRawFragment((data) => {
+      if (!data.text?.trim()) return
+      setLivePartialTranscript(data.text)
+    })
+
+    // Committed transcript listener — finalize the visible text and trigger Q/A once.
+    const cleanupTranscript = window.electronAPI.onRealtimeTranscriptUpdate((data) => {
+      if (!data.text?.trim()) return
+
+      const committedText = data.text.trim()
+      if (committedText === lastCommittedTextRef.current) return
+
+      lastCommittedTextRef.current = committedText
+      setLivePartialTranscript("")
+      setRawTranscripts((prev) => [committedText, ...prev].slice(0, 50))
+      void processTranscriptionRef.current(committedText)
+    })
+
+    return () => {
+      isRecordingRef.current = false
+      cleanupRaw()
+      cleanupTranscript()
+      // Ensure we stop recording on unmount
+      window.electronAPI.stopRealtimeTranscription().catch(() => {})
+    }
+  }, [])
+
+  const answeredItems = transcriptions.filter((t) => t.answer !== null)
 
   return (
-    <div className="w-fit">
-      <div className="text-xs text-white/90 liquid-glass-bar py-1 px-4 flex items-center justify-center gap-4 draggable-area">
-        {/* Show/Hide */}
-        <div className="flex items-center gap-2">
-          <span className="text-[11px] leading-none">Show/Hide</span>
-          <div className="flex gap-1">
-            <button className="bg-white/10 hover:bg-white/20 transition-colors rounded-md px-1.5 py-1 text-[11px] leading-none text-white/70">
-              ⌘
-            </button>
-            <button className="bg-white/10 hover:bg-white/20 transition-colors rounded-md px-1.5 py-1 text-[11px] leading-none text-white/70">
-              B
-            </button>
-          </div>
-        </div>
+    <div className="w-[320px]">
+      <div data-hit-region="active" className="text-xs text-white/90 liquid-glass-bar py-1 px-4 flex items-center justify-center gap-6 draggable-area">
+        {/* Toggle Button */}
+        <button 
+          type="button"
+          onClick={handleToggleWindow}
+          className="bg-white/10 hover:bg-white/20 transition-colors rounded-md px-2 py-1 text-[11px] leading-none text-white/70 cursor-pointer"
+        >
+          ⊕
+        </button>
 
-        {/* Screenshot */}
-        {/* Removed screenshot button from main bar for seamless screenshot-to-LLM UX */}
-
-        {/* Solve Command */}
-        {screenshots.length > 0 && (
-          <div className="flex items-center gap-2">
-            <span className="text-[11px] leading-none">Solve</span>
-            <div className="flex gap-1">
-              <button className="bg-white/10 hover:bg-white/20 transition-colors rounded-md px-1.5 py-1 text-[11px] leading-none text-white/70">
-                ⌘
-              </button>
-              <button className="bg-white/10 hover:bg-white/20 transition-colors rounded-md px-1.5 py-1 text-[11px] leading-none text-white/70">
-                ↵
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Voice Recording Button */}
-        <div className="flex items-center gap-2">
+        {/* Record + Transcript arrow group */}
+        <div className="flex items-center">
           <button
-            className={`bg-white/10 hover:bg-white/20 transition-colors rounded-md px-2 py-1 text-[11px] leading-none text-white/70 flex items-center gap-1 ${isRecording ? 'bg-red-500/70 hover:bg-red-500/90' : ''}`}
+            className={`bg-white/10 hover:bg-white/20 transition-colors px-2 py-1 text-[11px] leading-none text-white/70 flex items-center gap-1 ${
+              rawTranscripts.length > 0 || livePartialTranscript ? 'rounded-l-md' : 'rounded-md'
+            } ${isRecording ? 'bg-red-500/70 hover:bg-red-500/90' : ''}`}
             onClick={handleRecordClick}
+            onContextMenu={(e) => {
+              e.preventDefault()
+              handleClearHistory()
+            }}
             type="button"
           >
             {isRecording ? (
-              <span className="animate-pulse">● Stop Recording</span>
+              <span className="flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-red-400 animate-pulse" />
+                <span>Stop</span>
+              </span>
             ) : (
-              <span>🎤 Record Voice</span>
+              <span>Record</span>
             )}
           </button>
-        </div>
-
-        {/* Chat Button */}
-        <div className="flex items-center gap-2">
-          <button
-            className="bg-white/10 hover:bg-white/20 transition-colors rounded-md px-2 py-1 text-[11px] leading-none text-white/70 flex items-center gap-1"
-            onClick={onChatToggle}
-            type="button"
-          >
-            💬 Chat
-          </button>
-        </div>
-
-        {/* Settings Button */}
-        <div className="flex items-center gap-2">
-          <button
-            className="bg-white/10 hover:bg-white/20 transition-colors rounded-md px-2 py-1 text-[11px] leading-none text-white/70 flex items-center gap-1"
-            onClick={onSettingsToggle}
-            type="button"
-          >
-            ⚙️ Models
-          </button>
-        </div>
-
-        {/* Add this button in the main button row, before the separator and sign out */}
-        {/* Remove the Chat button */}
-
-        {/* Question mark with tooltip */}
-        <div
-          className="relative inline-block"
-          onMouseEnter={handleMouseEnter}
-          onMouseLeave={handleMouseLeave}
-        >
-          <div className="w-6 h-6 rounded-full bg-white/10 hover:bg-white/20 backdrop-blur-sm transition-colors flex items-center justify-center cursor-help z-10">
-            <span className="text-xs text-white/70">?</span>
-          </div>
-
-          {/* Tooltip Content */}
-          {isTooltipVisible && (
-            <div
-              ref={tooltipRef}
-              className="absolute top-full right-0 mt-2 w-80"
+          {/* Transcript log arrow dropdown toggle — right-click clears log */}
+          {(rawTranscripts.length > 0 || livePartialTranscript) && (
+            <button
+              type="button"
+              onClick={() => setShowTranscriptLog(!showTranscriptLog)}
+              onContextMenu={(e) => {
+                e.preventDefault()
+                handleClearTranscripts()
+              }}
+              className={`bg-white/10 hover:bg-white/20 transition-colors rounded-r-md px-1 py-1 text-[11px] leading-none text-white/50 border-l border-white/10 flex items-center justify-center ${
+                isRecording ? 'bg-red-500/40' : ''
+              }`}
+              title="Toggle transcript log (right-click to clear)"
             >
-              <div className="p-3 text-xs bg-black/80 backdrop-blur-md rounded-lg border border-white/10 text-white/90 shadow-lg">
-                <div className="space-y-4">
-                  <h3 className="font-medium truncate">Keyboard Shortcuts</h3>
-                  <div className="space-y-3">
-                    {/* Toggle Command */}
-                    <div className="space-y-1">
-                      <div className="flex items-center justify-between">
-                        <span className="truncate">Toggle Window</span>
-                        <div className="flex gap-1 flex-shrink-0">
-                          <span className="bg-white/10 px-1.5 py-0.5 rounded text-[10px] leading-none">
-                            ⌘
-                          </span>
-                          <span className="bg-white/10 px-1.5 py-0.5 rounded text-[10px] leading-none">
-                            B
-                          </span>
-                        </div>
-                      </div>
-                      <p className="text-[10px] leading-relaxed text-white/70 truncate">
-                        Show or hide this window.
-                      </p>
-                    </div>
-                    {/* Screenshot Command */}
-                    <div className="space-y-1">
-                      <div className="flex items-center justify-between">
-                        <span className="truncate">Take Screenshot</span>
-                        <div className="flex gap-1 flex-shrink-0">
-                          <span className="bg-white/10 px-1.5 py-0.5 rounded text-[10px] leading-none">
-                            ⌘
-                          </span>
-                          <span className="bg-white/10 px-1.5 py-0.5 rounded text-[10px] leading-none">
-                            H
-                          </span>
-                        </div>
-                      </div>
-                      <p className="text-[10px] leading-relaxed text-white/70 truncate">
-                        Take a screenshot of the problem description. The tool
-                        will extract and analyze the problem. The 5 latest
-                        screenshots are saved.
-                      </p>
-                    </div>
-
-                    {/* Solve Command */}
-                    <div className="space-y-1">
-                      <div className="flex items-center justify-between">
-                        <span className="truncate">Solve Problem</span>
-                        <div className="flex gap-1 flex-shrink-0">
-                          <span className="bg-white/10 px-1.5 py-0.5 rounded text-[10px] leading-none">
-                            ⌘
-                          </span>
-                          <span className="bg-white/10 px-1.5 py-0.5 rounded text-[10px] leading-none">
-                            ↵
-                          </span>
-                        </div>
-                      </div>
-                      <p className="text-[10px] leading-relaxed text-white/70 truncate">
-                        Generate a solution based on the current problem.
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
+              {showTranscriptLog ? <IoChevronUp className="w-[11px] h-[11px]" /> : <IoChevronDown className="w-[11px] h-[11px]" />}
+            </button>
           )}
         </div>
 
-        {/* Separator */}
-        <div className="mx-2 h-4 w-px bg-white/20" />
+        {/* Chat Button — right-click to clear chat */}
+        <button
+          className="bg-white/10 hover:bg-white/20 transition-colors rounded-md px-2 py-1 text-[11px] leading-none text-white/70 flex items-center gap-1"
+          onClick={onChatToggle}
+          onContextMenu={(e) => {
+            e.preventDefault()
+            onChatClear?.()
+          }}
+          type="button"
+        >
+          💬 Chat
+        </button>
 
-        {/* Sign Out Button - Moved to end */}
+        {/* Sign Out Button */}
         <button
           className="text-red-500/70 hover:text-red-500/90 transition-colors hover:cursor-pointer"
-          title="Sign Out"
           onClick={() => window.electronAPI.quitApp()}
         >
           <IoLogOutOutline className="w-4 h-4" />
         </button>
       </div>
-      {/* Audio Result Display */}
-      {audioResult && (
-        <div className="mt-2 p-2 bg-white/10 rounded text-white text-xs max-w-md">
-          <span className="font-semibold">Audio Result:</span> {audioResult}
+
+      {/* Transcript log dropdown - directly below command bar */}
+      {showTranscriptLog && (rawTranscripts.length > 0 || livePartialTranscript) && (
+        <div
+          data-hit-region="active"
+          className="mt-1 rounded-lg px-3 py-2 overflow-y-auto"
+          style={{
+            maxHeight: '120px',
+            background: 'rgba(0,0,0,0.55)',
+            backdropFilter: 'blur(20px) saturate(160%) brightness(85%)',
+            WebkitBackdropFilter: 'blur(20px) saturate(160%) brightness(85%)',
+            borderRadius: '0.75rem',
+            border: '1px solid rgba(255,255,255,0.06)'
+          }}
+        >
+          {livePartialTranscript && (
+            <p className="text-[10px] text-white/50 leading-relaxed mb-1">
+              {livePartialTranscript}
+            </p>
+          )}
+          {rawTranscripts.map((text, idx) => (
+            <p key={idx} className="text-[10px] text-white/50 leading-relaxed mb-1">
+              {text}
+            </p>
+          ))}
         </div>
       )}
-      {/* Chat Dialog Overlay */}
-      {/* Remove the Dialog component */}
+
+      {/* Questions & Answers — model-decided, no rule-based filter */}
+      {answeredItems.length > 0 && (
+        <div
+          data-hit-region="active"
+          className="mt-1 rounded-lg p-3 space-y-2 overflow-y-auto"
+          style={{
+            maxHeight: '250px',
+            background: 'rgba(0,0,0,0.55)',
+            backdropFilter: 'blur(20px) saturate(160%) brightness(85%)',
+            WebkitBackdropFilter: 'blur(20px) saturate(160%) brightness(85%)',
+            borderRadius: '0.75rem',
+            border: '1px solid rgba(255,255,255,0.06)'
+          }}
+        >
+          {answeredItems.map((item) => (
+            <div
+              key={item.id}
+              className="bg-black/30 rounded px-2.5 py-2 space-y-1.5 border border-white/10"
+            >
+              <div className="flex items-start gap-1.5">
+                <span className="text-[11px] font-semibold text-blue-300 shrink-0 leading-4">Q:</span>
+                <p className="text-[11px] text-white/80 leading-4">{item.question}</p>
+              </div>
+
+              {item.isLoading ? (
+                <div className="flex items-center gap-1.5 text-[10px] text-white/50 pl-4">
+                  <span className="animate-pulse">Generating answer...</span>
+                </div>
+              ) : item.answer ? (
+                <div className="pl-4">
+                  <p className="text-[10px] font-medium text-green-300/80 mb-0.5">A:</p>
+                  <p className="text-[11px] text-white/70 bg-black/20 rounded px-2 py-1 leading-relaxed">
+                    {item.answer}
+                  </p>
+                </div>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
