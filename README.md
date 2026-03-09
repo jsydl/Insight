@@ -1,13 +1,13 @@
 
 # Insight
 
-Insight is a lightweight Electron desktop assistant for real-time help during meetings, interviews, and live sessions.
+Insight is a lightweight Electron desktop assistant for real-time help during meetings, interviews, and live sessions. Heavily reworked version based on https://github.com/Prat011/free-cluely.
 
 ## What It Does
 
 - Real-time transcription with ElevenLabs Scribe v2 Realtime
-- Context-aware AI chat with Gemini
-- Screenshot capture and analysis with Gemini vision
+- AI chat with Gemini 2.5 Flash Lite
+- Screenshot capture and analysis with Gemini 2.5 Flash Lite
 - Personality presets and custom personality prompts
 - Always-on-top translucent window with keyboard control
 
@@ -71,8 +71,8 @@ Packaged output is written to `release-build/`.
 - `⊕` button (left-click): Toggle show/hide for the main window.
 - `Record` button (left-click): Start realtime transcription. While recording, the button changes to `Stop` and clicking again stops transcription.
 - `Record` button (right-click): Clears transcript log, clears generated Q/A items, and clears transcription context in memory.
-- Transcript arrow button `v/^` (left-click): Show or hide the transcript dropdown panel.
-- Transcript arrow button `v/^` (right-click): Clear transcript log and clear transcription context.
+- Transcript arrow button (left-click): Show or hide the transcript dropdown panel.
+- Transcript arrow button (right-click): Clear transcript log and clear transcription context.
 - `Chat` button (left-click): Open or close the chat panel.
 - `Chat` button (right-click): Clear chat messages and clear conversation history context.
 - Red sign-out icon (left-click): Quit the app.
@@ -127,7 +127,6 @@ If realtime transcription fails in packaged builds, check:
 
 ## Troubleshooting
 
-- App does not open in dev: check that port `5180` is free.
 - Transcription unavailable: verify `ELEVENLABS_API_KEY` is set.
 - Gemini errors: verify `GEMINI_API_KEY` is set and valid.
 
