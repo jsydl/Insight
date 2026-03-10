@@ -336,6 +336,18 @@ export class WindowHelper {
     this.ignoreMouseState = false
   }
 
+  private bringMainWindowToFront(): void {
+    if (!this.mainWindow || this.mainWindow.isDestroyed()) {
+      return
+    }
+
+    this.mainWindow.show()
+    this.mainWindow.focus()
+    this.mainWindow.setAlwaysOnTop(true)
+    this.isWindowVisible = true
+    this.updateMouseIgnoreState()
+  }
+
   public showMainWindow(): void {
     if (!this.mainWindow || this.mainWindow.isDestroyed()) {
       this.log("Main window does not exist or is destroyed.")
@@ -365,10 +377,7 @@ export class WindowHelper {
       })
     }
 
-    this.mainWindow.showInactive()
-    this.mainWindow.setAlwaysOnTop(true, "floating")
-    this.isWindowVisible = true
-    this.updateMouseIgnoreState()
+    this.bringMainWindowToFront()
 
     // Release dimension lock after a short delay
     if (this.dimensionUnlockTimer) {
@@ -424,11 +433,7 @@ export class WindowHelper {
     }
 
     this.centerWindow()
-    this.mainWindow.show()
-    this.mainWindow.focus()
-    this.mainWindow.setAlwaysOnTop(true)
-    this.isWindowVisible = true
-    this.updateMouseIgnoreState()
+    this.bringMainWindowToFront()
     
     this.log("Window centered and shown")
   }
@@ -464,6 +469,7 @@ export class WindowHelper {
         width: windowWidth,
         height: windowHeight
       })
+      this.mainWindow.setAlwaysOnTop(true)
       this.updateMouseIgnoreState()
     }
     // If hidden, the saved position will be used when toggle-on happens
@@ -490,6 +496,7 @@ export class WindowHelper {
       Math.round(this.currentX),
       Math.round(this.currentY)
     )
+    this.mainWindow.setAlwaysOnTop(true)
   }
 
   public moveWindowLeft(): void {
@@ -507,6 +514,7 @@ export class WindowHelper {
       Math.round(this.currentX),
       Math.round(this.currentY)
     )
+    this.mainWindow.setAlwaysOnTop(true)
   }
 
   public moveWindowDown(): void {
@@ -527,6 +535,7 @@ export class WindowHelper {
       Math.round(this.currentX),
       Math.round(this.currentY)
     )
+    this.mainWindow.setAlwaysOnTop(true)
   }
 
   public moveWindowUp(): void {
@@ -544,5 +553,6 @@ export class WindowHelper {
       Math.round(this.currentX),
       Math.round(this.currentY)
     )
+    this.mainWindow.setAlwaysOnTop(true)
   }
 }
