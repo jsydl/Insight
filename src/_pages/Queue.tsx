@@ -17,6 +17,13 @@ type ScreenshotAnalyzeResult = {
   error?: string
 }
 
+const createClientId = (): string => {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID()
+  }
+  return `${Date.now()}-${Math.random().toString(16).slice(2)}`
+}
+
 const Queue: React.FC = () => {
   const [chatInput, setChatInput] = useState("")
   const [chatMessages, setChatMessages] = useState<{role: "user"|"gemini", text: string}[]>([])
@@ -60,7 +67,7 @@ const Queue: React.FC = () => {
     // Clear any previous dismiss timer
     if (screenshotDismissTimer.current) clearTimeout(screenshotDismissTimer.current)
 
-    const captureId = Date.now().toString()
+    const captureId = createClientId()
     setScreenshotStatus({ id: captureId, stage: "uploading", progress: 5 })
 
     try {
@@ -69,6 +76,9 @@ const Queue: React.FC = () => {
         const analysisText = result.analysis
         // Show analysis in chat
         setChatMessages((msgs) => [...msgs, { role: "gemini", text: analysisText }])
+        window.electronAPI.invoke("add-screenshot-context", { analysisText }).catch((error) => {
+          console.warn("Failed to persist screenshot context", error)
+        })
         setScreenshotStatus((prev) => prev?.id === captureId ? { ...prev, stage: "done", progress: 100 } : prev)
         // Auto-dismiss after ~1s
         screenshotDismissTimer.current = setTimeout(() => {
@@ -111,6 +121,15 @@ const Queue: React.FC = () => {
     })
     return cleanup
   }, [isChatOpen])
+
+  useEffect(() => {
+    return () => {
+      if (screenshotDismissTimer.current) {
+        clearTimeout(screenshotDismissTimer.current)
+        screenshotDismissTimer.current = null
+      }
+    }
+  }, [])
 
   useEffect(() => {
     let rafId: number | null = null
@@ -170,7 +189,9 @@ const Queue: React.FC = () => {
             onChatToggle={handleChatToggle}
             onChatClear={() => {
               setChatMessages([])
-              window.electronAPI.invoke("clear-conversation-history").catch(() => {})
+              window.electronAPI.invoke("clear-conversation-history").catch((error) => {
+                console.warn("Failed to clear conversation history", error)
+              })
             }}
 
           />

@@ -14,6 +14,7 @@ export class WindowHelper {
   private hitRegions: Array<{ x: number; y: number; width: number; height: number }> = []
   private hitTestInterval: ReturnType<typeof setInterval> | null = null
   private ignoreMouseState: boolean | null = null
+  private lastCursorPoint: { x: number; y: number } | null = null
   private appState: AppState
 
   // Position saved before toggle-off, restored on toggle-on
@@ -82,19 +83,19 @@ export class WindowHelper {
     this.windowSize = { width: newWidth, height: newHeight }
     this.currentX = newX
     this.currentY = currentY
-    this.updateMouseIgnoreState()
+    this.updateMouseIgnoreState(true)
   }
 
   public setHitRegions(regions: Array<{ x: number; y: number; width: number; height: number }>): void {
     this.hitRegions = regions.filter(region => region.width > 0 && region.height > 0)
-    this.updateMouseIgnoreState()
+    this.updateMouseIgnoreState(true)
   }
 
   private startHitTestLoop(): void {
     this.stopHitTestLoop()
     this.hitTestInterval = setInterval(() => {
       this.updateMouseIgnoreState()
-    }, 40)
+    }, 75)
   }
 
   private stopHitTestLoop(): void {
@@ -104,7 +105,7 @@ export class WindowHelper {
     }
   }
 
-  private updateMouseIgnoreState(): void {
+  private updateMouseIgnoreState(force = false): void {
     if (!this.mainWindow || this.mainWindow.isDestroyed() || !this.isWindowVisible) return
     if (this.hitRegions.length === 0) {
       if (this.ignoreMouseState !== false) {
@@ -115,6 +116,10 @@ export class WindowHelper {
     }
 
     const cursor = screen.getCursorScreenPoint()
+    if (!force && this.lastCursorPoint && this.lastCursorPoint.x === cursor.x && this.lastCursorPoint.y === cursor.y) {
+      return
+    }
+    this.lastCursorPoint = { x: cursor.x, y: cursor.y }
     const bounds = this.mainWindow.getBounds()
     const localX = cursor.x - bounds.x
     const localY = cursor.y - bounds.y
@@ -157,7 +162,7 @@ export class WindowHelper {
       width: 350,
       height: 60,
       webPreferences: {
-        nodeIntegration: true,
+        nodeIntegration: false,
         contextIsolation: true,
         preload: path.join(__dirname, "preload.js")
       },
@@ -288,7 +293,7 @@ export class WindowHelper {
       if (this.mainWindow) {
         const bounds = this.mainWindow.getBounds()
         this.windowSize = { width: bounds.width, height: bounds.height }
-        this.updateMouseIgnoreState()
+        this.updateMouseIgnoreState(true)
       }
     })
 
@@ -308,6 +313,7 @@ export class WindowHelper {
       this.windowSize = null
       this.hitRegions = []
       this.ignoreMouseState = null
+      this.lastCursorPoint = null
     })
   }
 
@@ -331,9 +337,11 @@ export class WindowHelper {
     this.windowPosition = { x: bounds.x, y: bounds.y }
     this.windowSize = { width: bounds.width, height: bounds.height }
     this.mainWindow.hide()
+    this.stopHitTestLoop()
     this.isWindowVisible = false
     this.mainWindow.setIgnoreMouseEvents(false)
     this.ignoreMouseState = false
+    this.lastCursorPoint = null
   }
 
   private bringMainWindowToFront(): void {
@@ -344,8 +352,10 @@ export class WindowHelper {
     this.mainWindow.show()
     this.mainWindow.focus()
     this.mainWindow.setAlwaysOnTop(true)
+    this.startHitTestLoop()
     this.isWindowVisible = true
-    this.updateMouseIgnoreState()
+    this.lastCursorPoint = null
+    this.updateMouseIgnoreState(true)
   }
 
   public showMainWindow(): void {
@@ -470,7 +480,7 @@ export class WindowHelper {
         height: windowHeight
       })
       this.mainWindow.setAlwaysOnTop(true)
-      this.updateMouseIgnoreState()
+      this.updateMouseIgnoreState(true)
     }
     // If hidden, the saved position will be used when toggle-on happens
 

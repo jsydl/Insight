@@ -4,6 +4,7 @@ import { ipcMain, app } from "electron"
 import { AppState } from "./main"
 import { PERSONALITY_PRESETS } from "./ProcessingHelper"
 import { appendAppLog } from "./logger"
+import { randomUUID } from "node:crypto"
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
@@ -319,7 +320,7 @@ export function initializeIpcHandlers(appState: AppState): void {
   // ── Screenshot capture + Gemini vision analysis ───────────────
   ipcMain.handle("capture-and-analyze-screenshot", async () => {
     const mainWindow = appState.getMainWindow()
-    const captureId = Date.now().toString()
+    const captureId = randomUUID()
 
     const emitProgress = (stage: string, progress: number, detail?: string) => {
       if (mainWindow && !mainWindow.isDestroyed()) {
@@ -371,6 +372,25 @@ export function initializeIpcHandlers(appState: AppState): void {
       logError("Error in capture-and-analyze-screenshot", error)
       emitProgress("failed", 0, message)
       return { success: false, error: message }
+    }
+  })
+
+  // Persist screenshot analysis as shared context for later follow-up chat questions.
+  ipcMain.handle("add-screenshot-context", async (_event, payload: { analysisText?: string }) => {
+    try {
+      const analysisText = (payload?.analysisText || "").trim()
+      if (!analysisText) {
+        return { success: false, error: "Missing analysis text" }
+      }
+
+      const screenshotQuestion = "[Screenshot analysis]"
+      recentQAContext.push({ q: screenshotQuestion, a: analysisText })
+      if (recentQAContext.length > 40) recentQAContext.shift()
+
+      appState.processingHelper.addToConversationHistory(screenshotQuestion, analysisText)
+      return { success: true }
+    } catch (error: unknown) {
+      return { success: false, error: errorMessage(error) }
     }
   })
 }

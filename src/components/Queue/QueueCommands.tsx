@@ -21,6 +21,15 @@ type AnswerQuestionResult = {
   error?: string
 }
 
+const createClientId = (): string => {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID()
+  }
+  return `${Date.now()}-${Math.random().toString(16).slice(2)}`
+}
+
+const MAX_TRANSCRIPTIONS = 60
+
 const QueueCommands: React.FC<QueueCommandsProps> = ({
   onChatToggle,
   onChatClear,
@@ -32,6 +41,8 @@ const QueueCommands: React.FC<QueueCommandsProps> = ({
   const [showTranscriptLog, setShowTranscriptLog] = useState(false)
   const isRecordingRef = useRef(false)
   const lastCommittedTextRef = useRef("")
+  const lastRawFragmentRef = useRef("")
+  const transcriptionSessionIdRef = useRef(0)
 
   const handleToggleWindow = () => {
     window.electronAPI.toggleWindow()
@@ -39,10 +50,10 @@ const QueueCommands: React.FC<QueueCommandsProps> = ({
 
   // Unified pipeline: send every transcript chunk to the model.
   // The model itself decides whether it's worth answering (returns skipped=true if not).
-  const processTranscription = async (text: string) => {
+  const processTranscription = async (text: string, sessionId: number) => {
     if (!text.trim()) return
 
-    const itemId = Date.now().toString()
+    const itemId = createClientId()
     const newItem: TranscriptionItem = {
       id: itemId,
       question: text,
@@ -51,10 +62,16 @@ const QueueCommands: React.FC<QueueCommandsProps> = ({
       timestamp: Date.now()
     }
 
-    setTranscriptions((prev) => [newItem, ...prev])
+    setTranscriptions((prev) => [newItem, ...prev].slice(0, MAX_TRANSCRIPTIONS))
 
     try {
       const result = await window.electronAPI.invoke<AnswerQuestionResult>("answer-question", text)
+
+      // Ignore stale responses from older recording sessions.
+      if (sessionId !== transcriptionSessionIdRef.current) {
+        setTranscriptions((prev) => prev.filter((item) => item.id !== itemId))
+        return
+      }
 
       if (result.success && !result.skipped && typeof result.answer === "string") {
         const answerText = result.answer
@@ -83,6 +100,7 @@ const QueueCommands: React.FC<QueueCommandsProps> = ({
   const handleRecordClick = async () => {
     if (isRecordingRef.current) {
       // Stop recording
+      transcriptionSessionIdRef.current += 1
       isRecordingRef.current = false
       setIsRecording(false)
       try {
@@ -94,6 +112,7 @@ const QueueCommands: React.FC<QueueCommandsProps> = ({
     }
 
     // Start recording
+    transcriptionSessionIdRef.current += 1
     isRecordingRef.current = true
     setIsRecording(true)
 
@@ -110,7 +129,9 @@ const QueueCommands: React.FC<QueueCommandsProps> = ({
     setRawTranscripts([])
     setLivePartialTranscript("")
     setShowTranscriptLog(false)
-    window.electronAPI.invoke("clear-transcription-context").catch(() => {})
+    window.electronAPI.invoke("clear-transcription-context").catch((error) => {
+      console.warn("Failed to clear transcription context", error)
+    })
   }
 
   const handleClearHistory = () => {
@@ -119,27 +140,41 @@ const QueueCommands: React.FC<QueueCommandsProps> = ({
     setLivePartialTranscript("")
     setShowTranscriptLog(false)
     lastCommittedTextRef.current = ""
-    window.electronAPI.invoke("clear-transcription-context").catch(() => {})
+    transcriptionSessionIdRef.current += 1
+    window.electronAPI.invoke("clear-transcription-context").catch((error) => {
+      console.warn("Failed to clear transcription context", error)
+    })
   }
 
   useEffect(() => {
     // Raw fragment listener — update the single live partial line only.
     const cleanupRaw = window.electronAPI.onRawFragment((data) => {
       if (!data.text?.trim()) return
-      setLivePartialTranscript(data.text)
+      const fragment = data.text.trim()
+      lastRawFragmentRef.current = fragment
+      setLivePartialTranscript(fragment)
     })
 
-    // Committed transcript listener — finalize the visible text and trigger Q/A once.
+    // Committed transcript listener — finalize one raw-log line and trigger Q/A once.
     const cleanupTranscript = window.electronAPI.onRealtimeTranscriptUpdate((data) => {
       if (!data.text?.trim()) return
+      if (!isRecordingRef.current) return
 
       const committedText = data.text.trim()
       if (committedText === lastCommittedTextRef.current) return
 
       lastCommittedTextRef.current = committedText
+
+      // Root cause fix: raw transcript log should prefer the raw fragment stream.
+      // Some providers normalize committed text, which can look like rewritten output.
+      const finalizedLogText = (lastRawFragmentRef.current || committedText).trim()
+      lastRawFragmentRef.current = ""
+
       setLivePartialTranscript("")
-      setRawTranscripts((prev) => [committedText, ...prev].slice(0, 50))
-      void processTranscriptionRef.current(committedText)
+      if (finalizedLogText) {
+        setRawTranscripts((prev) => [finalizedLogText, ...prev].slice(0, 50))
+      }
+      void processTranscriptionRef.current(committedText, transcriptionSessionIdRef.current)
     })
 
     return () => {
@@ -147,7 +182,9 @@ const QueueCommands: React.FC<QueueCommandsProps> = ({
       cleanupRaw()
       cleanupTranscript()
       // Ensure we stop recording on unmount
-      window.electronAPI.stopRealtimeTranscription().catch(() => {})
+      window.electronAPI.stopRealtimeTranscription().catch((error) => {
+        console.warn("Failed to stop realtime transcription during cleanup", error)
+      })
     }
   }, [])
 

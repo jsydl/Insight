@@ -282,7 +282,7 @@ export class AppState {
       hasShadow: false,
       backgroundColor: "#00000000",
       webPreferences: {
-        nodeIntegration: true,
+        nodeIntegration: false,
         contextIsolation: true,
         preload: path.join(__dirname, "preload.js"),
       },
@@ -353,6 +353,13 @@ async function initializeApp() {
     appState.createWindow()
     log('Calling appState.createTray')
     appState.createTray()
+    if (process.platform === "win32") {
+      app.setLoginItemSettings({
+        openAtLogin: true,
+        enabled: false,
+      })
+      log('[Startup] Registered Startup Apps entry (disabled by default)')
+    }
     // Register global shortcuts using ShortcutsHelper
     log('Registering global shortcuts')
     appState.shortcutsHelper.registerGlobalShortcuts()

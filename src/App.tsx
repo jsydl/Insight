@@ -70,7 +70,9 @@ const App: React.FC = () => {
           })
           .filter((rect) => rect.width > 0 && rect.height > 0)
 
-        window.electronAPI.invoke("set-window-hit-regions", regions).catch(() => {})
+        window.electronAPI.invoke("set-window-hit-regions", regions).catch((error) => {
+          console.warn("Failed to set hit regions", error)
+        })
       })
     }
 
@@ -102,7 +104,9 @@ const App: React.FC = () => {
       resizeObserver.disconnect()
       mutationObserver.disconnect()
       window.removeEventListener("resize", reportHitRegions)
-      window.electronAPI.invoke("set-window-hit-regions", []).catch(() => {})
+      window.electronAPI.invoke("set-window-hit-regions", []).catch((error) => {
+        console.warn("Failed to clear hit regions", error)
+      })
     }
   }, [isPersonalityView])
 
