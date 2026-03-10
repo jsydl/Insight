@@ -5,11 +5,10 @@ Insight is a lightweight Electron desktop assistant for real-time help during me
 
 ## What It Does
 
+- Always-on-top translucent bubble window
 - Real-time transcription with ElevenLabs Scribe v2 Realtime
-- AI chat with Gemini 2.5 Flash Lite
-- Screenshot capture and analysis with Gemini 2.5 Flash Lite
+- Chat and screenshot analysis with Gemini 2.5 Flash Lite
 - Personality presets and custom personality prompts
-- Always-on-top translucent window with keyboard control
 
 ## Requirements
 
@@ -26,7 +25,7 @@ Get keys:
 ## Setup
 
 ```bash
-git clone <https://github.com/jsydl/Insight>
+git clone https://github.com/jsydl/Insight
 cd insight
 npm install
 ```
@@ -62,26 +61,26 @@ Packaged output is written to `release-build/`.
 - `Ctrl/Cmd + B`: Toggle main window
 - `Ctrl/Cmd + R`: Reset interview/session context
 - `Ctrl/Cmd + Left/Right/Up/Down`: Move window
-- `Ctrl/Cmd + H`: Trigger screenshot capture
+- `Ctrl/Cmd + H`: Screenshot analysis
 
 ## UI Controls Reference
 
 ### Main Bubble Bar
 
 - `⊕` button (left-click): Toggle show/hide for the main window.
-- `Record` button (left-click): Start realtime transcription. While recording, the button changes to `Stop` and clicking again stops transcription.
+- `Record` button (left-click): Start realtime transcription. While recording, clicking again stops transcription.
 - `Record` button (right-click): Clears transcript log, clears generated Q/A items, and clears transcription context in memory.
 - Transcript arrow button (left-click): Show or hide the transcript dropdown panel.
 - Transcript arrow button (right-click): Clear transcript log and clear transcription context.
 - `Chat` button (left-click): Open or close the chat panel.
 - `Chat` button (right-click): Clear chat messages and clear conversation history context.
-- Red sign-out icon (left-click): Quit the app.
+- Red exit icon (left-click): Quit the app.
 
-### Chat Panel (below bubble bar)
+### Chat Panel
 
 - Message input: Type a message for Gemini chat context.
 - Send button or `Enter`: Send the current chat message.
-- Screenshot button (picture icon): Capture screen and analyze it with Gemini Vision, then append the result to chat.
+- Screenshot button: Capture screen and analyze it with Gemini 2.5 Flash Lite, then append the result to chat.
 
 ### Transcript and Q/A Panels
 
@@ -121,14 +120,67 @@ In production, `.env` is loaded from runtime candidates including:
 - `%APPDATA%/Insight/.env` (Windows)
 - Resources/app paths
 
-If realtime transcription fails in packaged builds, check:
-
-- `%APPDATA%/Insight/log.txt`
-
 ## Troubleshooting
 
-- Transcription unavailable: verify `ELEVENLABS_API_KEY` is set.
-- Gemini errors: verify `GEMINI_API_KEY` is set and valid.
+Check the app log first:
+
+- Windows log file: `C:\Users\<YourUser>\AppData\Roaming\Insight\log.txt`
+
+Common issues:
+
+- Gemini chat or screenshot analysis fails:
+  - Verify `GEMINI_API_KEY` is present in your `.env`
+  - Typical error: `Missing GEMINI_API_KEY in environment. Please add it to your .env file`
+
+- Transcription is unavailable or fails to start:
+  - Verify `ELEVENLABS_API_KEY` is present in your `.env`
+  - Typical error: `Missing ELEVENLABS_API_KEY`
+  - The app may also log: `Failed to start transcription: ...`
+
+- Realtime transcription disconnects or stops unexpectedly:
+  - Check the log for:
+    - `ElevenLabs websocket error: ...`
+    - `ElevenLabs websocket closed (...)`
+    - `Lost connection to ElevenLabs realtime transcription`
+    - `ElevenLabs reconnect failed: ...`
+
+- Packaged app cannot capture/transcribe system audio:
+  - Check the log for:
+    - `Audio capture helper was not found in the packaged app`
+    - `Realtime capture loop error: ...`
+    - `wasapi-loopback.exe not found; candidates=...`
+
+- Screenshot capture or analysis fails:
+  - Check the log for:
+    - `Error in capture-and-analyze-screenshot: ...`
+  - Gemini may also return:
+    - `Screenshot data is empty or too small — capture may have failed.`
+
+- Custom personality does not save or load:
+  - Check the log for:
+    - `Failed to save personality: ...`
+    - `Failed to load personality, using default: ...`
+
+- Window/tray/startup behavior seems wrong:
+  - Check the log for:
+    - `[Startup] Registered Startup Apps entry (disabled by default)`
+    - `[Tray] ...`
+    - `[WindowHelper] ...`
+
+- `.env` is not being picked up in the packaged app:
+  - The app logs all searched runtime `.env` locations
+  - Check the log for:
+    - `[ENV] searched=...`
+    - `[ENV] loaded=...`
+
+If something still fails, open the log file and look for entries from:
+
+- `[App]`
+- `[ipcHandlers]`
+- `[ProcessingHelper]`
+- `[WindowHelper]`
+- `[Shortcuts]`
+- `[ENV]`
 
 ## License
 
