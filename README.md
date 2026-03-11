@@ -1,6 +1,15 @@
 
 # Insight
 
+![Cluely Inspired](https://img.shields.io/badge/Cluely-Inspired-111111?style=flat-square)
+![Electron](https://img.shields.io/badge/Electron-Desktop_App-47848F?style=flat-square&logo=electron&logoColor=white)
+![React](https://img.shields.io/badge/React-18-61DAFB?style=flat-square&logo=react&logoColor=black)
+![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?style=flat-square&logo=typescript&logoColor=white)
+![Vite](https://img.shields.io/badge/Vite-5-646CFF?style=flat-square&logo=vite&logoColor=white)
+![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-3-06B6D4?style=flat-square&logo=tailwindcss&logoColor=white)
+![Gemini](https://img.shields.io/badge/Gemini-2.5_Flash_Lite-4285F4?style=flat-square&logo=google&logoColor=white)
+![ElevenLabs](https://img.shields.io/badge/ElevenLabs-Realtime_Transcription-111111?style=flat-square)
+
 Insight is a lightweight Electron desktop assistant for real-time help during meetings, interviews, and live sessions. Heavily reworked version based on https://github.com/Prat011/free-cluely.
 
 ## What It Does
@@ -67,7 +76,7 @@ Packaged output is written to `release-build/`.
 
 ### Main Bubble Bar
 
-- `⊕` button (left-click): Toggle show/hide for the main window.
+- `⊕` button (left-click): Toggle show/hide the bubble.
 - `Record` button (left-click): Start realtime transcription. While recording, clicking again stops transcription.
 - `Record` button (right-click): Clears transcript log, clears generated Q/A items, and clears transcription context in memory.
 - Transcript arrow button (left-click): Show or hide the transcript dropdown panel.
@@ -78,9 +87,9 @@ Packaged output is written to `release-build/`.
 
 ### Chat Panel
 
-- Message input: Type a message for Gemini chat context.
+- Message input: Type a message for Gemini chat.
 - Send button or `Enter`: Send the current chat message.
-- Screenshot button: Capture screen and analyze it with Gemini 2.5 Flash Lite, then append the result to chat.
+- Screenshot button: Capture screen and analyze it with Gemini 2.5 Flash Lite.
 
 ### Transcript and Q/A Panels
 
@@ -90,7 +99,7 @@ Packaged output is written to `release-build/`.
 
 ## Tray Icon Behavior
 
-- Tray icon left-click: Toggle the main window visibility (preserves last position).
+- Tray icon left-click: Toggle the main window visibility.
 - Tray icon right-click: Open tray menu.
 - Tray menu `Reset Position`: Re-center window to default position.
 - Tray menu `Personality > <Preset>`: Apply selected personality preset.
