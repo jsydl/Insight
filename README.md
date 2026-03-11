@@ -1,14 +1,14 @@
 
 # Insight
 
-![Cluely Inspired](https://img.shields.io/badge/Cluely-Inspired-111111?style=flat-square)
-![Electron](https://img.shields.io/badge/Electron-Desktop_App-47848F?style=flat-square&logo=electron&logoColor=white)
-![React](https://img.shields.io/badge/React-18-61DAFB?style=flat-square&logo=react&logoColor=black)
-![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?style=flat-square&logo=typescript&logoColor=white)
-![Vite](https://img.shields.io/badge/Vite-5-646CFF?style=flat-square&logo=vite&logoColor=white)
-![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-3-06B6D4?style=flat-square&logo=tailwindcss&logoColor=white)
-![Gemini](https://img.shields.io/badge/Gemini-2.5_Flash_Lite-4285F4?style=flat-square&logo=google&logoColor=white)
-![ElevenLabs](https://img.shields.io/badge/ElevenLabs-Realtime_Transcription-111111?style=flat-square)
+![Cluely](https://img.shields.io/badge/Cluely-111111?style=square)
+![Electron](https://img.shields.io/badge/Electron-47848F?style=square&logo=electron&logoColor=white)
+![React](https://img.shields.io/badge/React-18-61DAFB?style=square&logo=react&logoColor=black)
+![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?style=square&logo=typescript&logoColor=black)
+![Vite](https://img.shields.io/badge/Vite-5-646CFF?style=square&logo=vite&logoColor=white)
+![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-3-06B6D4?style=square&logo=tailwindcss&logoColor=white)
+![Gemini](https://img.shields.io/badge/Gemini-2.5_Flash_Lite-4285F4?style=square&logo=google&logoColor=white)
+![ElevenLabs](https://img.shields.io/badge/ElevenLabs-Scribe_v2_Realtime-111111?style=square)
 
 Insight is a lightweight Electron desktop assistant for real-time help during meetings, interviews, and live sessions. Heavily reworked version based on https://github.com/Prat011/free-cluely.
 
