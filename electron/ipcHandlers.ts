@@ -200,7 +200,7 @@ export function initializeIpcHandlers(appState: AppState): void {
     }
   })
 
-  ipcMain.handle("set-custom-personality", async (_event, scope: "chat" | "transcription", rawText: string) => {
+  ipcMain.handle("set-custom-personality", async (_event, scope: "chat" | "transcription" | "imageAnalysis", rawText: string) => {
     try {
       const effective = await appState.processingHelper.setCustomPersonality(scope, rawText)
       return { success: true, effective }
@@ -337,7 +337,7 @@ export function initializeIpcHandlers(appState: AppState): void {
       emitProgress("uploading", 30, "Screenshot captured")
       emitProgress("analyzing", 40, "Analyzing with Gemini\u2026")
 
-      const chatPersonality = appState.processingHelper.getChatPersonality()
+      const imageAnalysisPersonality = appState.processingHelper.getImageAnalysisPersonality()
       const cumulativeTranscript = appState.processingHelper.getCumulativeTranscript()
 
       // Build a context-aware vision prompt
@@ -350,14 +350,15 @@ export function initializeIpcHandlers(appState: AppState): void {
         contextHint = `\n\nSession context (use to interpret the screenshot if relevant):\n"${excerpt}"`
       }
 
-      const visionPrompt = chatPersonality
-        ? `${chatPersonality}${contextHint}\n\n` +
-          `Analyze this screenshot and do the following:\n` +
-          `1. If there are questions, problems, exercises, or tasks — solve or answer them directly and completely.\n` +
-          `2. If there is code — identify bugs, explain the logic, or suggest concrete improvements.\n` +
-          `3. If there is text content — extract and clearly present the key information.\n` +
-          `4. Do NOT describe or narrate what you see. Go straight to the answer or extracted content.\n` +
-          `Use the session context above only if it helps interpret the screenshot. Be thorough but focused. No filler.`
+      const visionPrompt = imageAnalysisPersonality
+        ? `${imageAnalysisPersonality}${contextHint}\n\n` +
+        `Analyze this screenshot and do the following:\n` +
+        `1. If there are questions, problems, exercises, or tasks — solve or answer them directly and completely.\n` +
+        `2. If there is code — identify bugs, explain the logic, or suggest concrete improvements.\n` +
+        `3. If there is text content — extract and clearly present the key information.\n` +
+        `4. Do NOT describe or narrate what you see. Go straight to the answer or extracted content.\n` +
+        `5. Use Markdown formatting when it improves readability.\n` +
+        `Use the session context above only if it helps interpret the screenshot. Be thorough but focused. No filler.`
         : undefined
 
       const llmHelper = appState.processingHelper.getLLMHelper()
@@ -366,7 +367,7 @@ export function initializeIpcHandlers(appState: AppState): void {
       })
 
       emitProgress("done", 100, "Analysis complete")
-      return { success: true, analysis }
+      return { success: true, analysis, screenshotBase64: base64Png }
     } catch (error: unknown) {
       const message = errorMessage(error) || "Screenshot analysis failed"
       logError("Error in capture-and-analyze-screenshot", error)

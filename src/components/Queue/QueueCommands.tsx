@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from "react"
 import { IoLogOutOutline, IoChevronDown, IoChevronUp } from "react-icons/io5"
+import MarkdownMessage from "../MarkdownMessage"
 
 interface QueueCommandsProps {
   onChatToggle: () => void
@@ -323,9 +324,9 @@ const QueueCommands: React.FC<QueueCommandsProps> = ({
               ) : item.answer ? (
                 <div className="pl-4">
                   <p className="text-[10px] font-medium text-green-300/80 mb-0.5">A:</p>
-                  <p className="text-[11px] text-white/70 bg-black/20 rounded px-2 py-1 leading-relaxed">
-                    {item.answer}
-                  </p>
+                  <div className="text-[11px] text-white/70 bg-black/20 rounded px-2 py-1 leading-relaxed">
+                    <MarkdownMessage content={item.answer} />
+                  </div>
                 </div>
               ) : null}
             </div>

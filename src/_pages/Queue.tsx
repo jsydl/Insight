@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from "react"
 import QueueCommands from "../components/Queue/QueueCommands"
+import MarkdownMessage from "../components/MarkdownMessage"
 
 // ── Screenshot status types ──────────────────────────────────────
 type ScreenshotStage = "uploading" | "analyzing" | "done" | "failed"
@@ -14,8 +15,13 @@ interface ScreenshotStatus {
 type ScreenshotAnalyzeResult = {
   success: boolean
   analysis?: string
+  screenshotBase64?: string
   error?: string
 }
+
+type ChatMessage =
+  | { kind: "text"; role: "user" | "gemini"; text: string }
+  | { kind: "image"; role: "user"; src: string; alt: string }
 
 const createClientId = (): string => {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
@@ -26,7 +32,7 @@ const createClientId = (): string => {
 
 const Queue: React.FC = () => {
   const [chatInput, setChatInput] = useState("")
-  const [chatMessages, setChatMessages] = useState<{role: "user"|"gemini", text: string}[]>([])
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
   const [chatLoading, setChatLoading] = useState(false)
   const [isChatOpen, setIsChatOpen] = useState(false)
   const chatInputRef = useRef<HTMLInputElement>(null)
@@ -45,14 +51,14 @@ const Queue: React.FC = () => {
 
   const handleChatSend = async () => {
     if (!chatInput.trim()) return
-    setChatMessages((msgs) => [...msgs, { role: "user", text: chatInput }])
+    setChatMessages((msgs) => [...msgs, { kind: "text", role: "user", text: chatInput }])
     setChatLoading(true)
     setChatInput("")
     try {
       const response = await window.electronAPI.invoke<string>("gemini-chat", chatInput)
-      setChatMessages((msgs) => [...msgs, { role: "gemini", text: response }])
+      setChatMessages((msgs) => [...msgs, { kind: "text", role: "gemini", text: response }])
     } catch (err) {
-      setChatMessages((msgs) => [...msgs, { role: "gemini", text: "Error: " + String(err) }])
+      setChatMessages((msgs) => [...msgs, { kind: "text", role: "gemini", text: "Error: " + String(err) }])
     } finally {
       setChatLoading(false)
       chatInputRef.current?.focus()
@@ -74,8 +80,17 @@ const Queue: React.FC = () => {
       const result = await window.electronAPI.invoke<ScreenshotAnalyzeResult>("capture-and-analyze-screenshot")
       if (result.success && typeof result.analysis === "string") {
         const analysisText = result.analysis
-        // Show analysis in chat
-        setChatMessages((msgs) => [...msgs, { role: "gemini", text: analysisText }])
+        const nextMessages: ChatMessage[] = []
+        if (typeof result.screenshotBase64 === "string" && result.screenshotBase64.length > 0) {
+          nextMessages.push({
+            kind: "image",
+            role: "user",
+            src: `data:image/png;base64,${result.screenshotBase64}`,
+            alt: "Captured screenshot",
+          })
+        }
+        nextMessages.push({ kind: "text", role: "gemini", text: analysisText })
+        setChatMessages((msgs) => [...msgs, ...nextMessages])
         window.electronAPI.invoke("add-screenshot-context", { analysisText }).catch((error) => {
           console.warn("Failed to persist screenshot context", error)
         })
@@ -216,14 +231,31 @@ const Queue: React.FC = () => {
                     } mb-2`}
                   >
                     <div
-                      className={`max-w-[85%] px-2.5 py-1.5 rounded-lg text-[11px] border ${
+                      className={`max-w-[85%] rounded-lg border ${
                         msg.role === "user"
                           ? "bg-white/15 text-gray-100 border-white/10"
                           : "bg-white/10 text-gray-200 border-white/10"
                       }`}
-                      style={{ overflowWrap: "break-word", wordBreak: "break-word", lineHeight: "1.4" }}
+                      style={msg.kind === "text"
+                        ? { overflowWrap: "break-word", wordBreak: "break-word", lineHeight: "1.4" }
+                        : undefined}
                     >
-                      {msg.text}
+                      {msg.kind === "image" ? (
+                        <img
+                          src={msg.src}
+                          alt={msg.alt}
+                          className="block max-w-full h-auto rounded-lg"
+                        />
+                      ) : msg.role === "gemini" ? (
+                        <MarkdownMessage
+                          content={msg.text}
+                          className="px-2.5 py-1.5 text-[11px]"
+                        />
+                      ) : (
+                        <div className="px-2.5 py-1.5 text-[11px]">
+                          {msg.text}
+                        </div>
+                      )}
                     </div>
                   </div>
                 ))}

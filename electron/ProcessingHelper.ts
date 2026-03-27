@@ -22,6 +22,7 @@ export interface PersonalityScope {
 export interface PersonalitySettings {
   chat: PersonalityScope
   transcription: PersonalityScope
+  imageAnalysis: PersonalityScope
   activePreset: string | null  // null = custom
 }
 
@@ -31,6 +32,7 @@ export interface PersonalityPreset {
   description: string
   chat: string
   transcription: string
+  imageAnalysis: string
 }
 
 export const PERSONALITY_PRESETS: PersonalityPreset[] = [
@@ -38,15 +40,17 @@ export const PERSONALITY_PRESETS: PersonalityPreset[] = [
     id: "interview",
     label: "Interview",
     description: "General interview prep — clear, actionable answers",
-    chat: "You are an interview preparation assistant. Give answers the user can quickly read and say in their own words. No bullet points, no headers. Simple language. Start with the answer, no filler. Adapt to whatever interview domain the user is preparing for.",
+    chat: "You are an interview preparation assistant. Give answers the user can quickly read and say in their own words. Simple language. Start with the answer, no filler. Adapt to whatever interview domain the user is preparing for. Use light Markdown formatting when it improves readability.",
     transcription: "You are filtering live audio from an interview preparation session. Answer genuine questions about interviews, professional topics, and domain knowledge. No filler openings. Resolve pronouns using context. SKIP casual small talk or off-topic content.",
+    imageAnalysis: "You are analyzing screenshots for interview preparation. Solve visible interview questions, coding prompts, whiteboard tasks, resume content, system design notes, and take-home style tasks directly. Extract only the important content, explain the answer clearly, and use Markdown formatting when it improves readability.",
   },
   {
     id: "concise",
     label: "Concise",
     description: "Premium concise — direct, clear, never terse or rude",
-    chat: "Give clear, helpful answers that stay concise without sounding abrupt. Keep responses brief by default, but include a short explanation when it genuinely improves clarity. If a question is vague or too short, ask for clarification succinctly while still giving the most useful minimal answer possible. Avoid filler, unnecessary preamble, and overly long responses. Do not use bullet points or headings unless the user asks for them.",
+    chat: "Give clear, helpful answers that stay concise without sounding abrupt. Keep responses brief by default, but include a short explanation when it genuinely improves clarity. If a question is vague or too short, ask for clarification succinctly while still giving the most useful minimal answer possible. Avoid filler, unnecessary preamble, and overly long responses. Use light Markdown formatting when it improves clarity.",
     transcription: "Answer questions concisely and clearly. Never be terse or dismissive — always provide a minimal but useful answer. If the question is unclear, ask for clarification. Skip filler and preamble. Resolve pronouns using context. SKIP off-topic content.",
+    imageAnalysis: "Analyze the screenshot and return the essential answer or extracted content with minimal wording. Be direct, efficient, and complete enough to be useful, but avoid extra explanation unless it changes understanding. Use Markdown formatting when it improves readability.",
   },
   {
     id: "friendly",
@@ -54,6 +58,7 @@ export const PERSONALITY_PRESETS: PersonalityPreset[] = [
     description: "Warm, encouraging tone — explains like a patient tutor",
     chat: "You are a friendly, patient assistant. Explain things clearly and encouragingly. Use simple analogies when helpful. Be warm but stay on topic.",
     transcription: "You are a friendly assistant listening to a session. Answer questions warmly and clearly. Use simple analogies. SKIP off-topic content.",
+    imageAnalysis: "Analyze the screenshot like a friendly, patient tutor. Give the direct answer first, then explain clearly in a warm, approachable way when helpful. Stay focused on the content and use Markdown formatting when it improves readability.",
   },
 ]
 
@@ -78,6 +83,7 @@ export class ProcessingHelper {
   private personality: PersonalitySettings = {
     chat: { raw: "", effective: "" },
     transcription: { raw: "", effective: "" },
+    imageAnalysis: { raw: "", effective: "" },
     activePreset: "interview",
   }
   private personalityFilePath: string = ""
@@ -315,7 +321,7 @@ export class ProcessingHelper {
         try {
           const data = typeof payload === "string" ? payload : payload.toString("utf-8")
           const msg = JSON.parse(data)
-          
+
           const messageType = String(msg?.message_type || msg?.type || "")
           const text = this.extractTranscriptText(msg)
 
@@ -463,12 +469,12 @@ export class ProcessingHelper {
           const tempRaw = path.join(os.tmpdir(), `sys-audio-realtime-${Date.now()}.wav`)
           await this.runProcess(loopbackExe, [tempRaw, String(CHUNK_MS)], CHUNK_MS + 5_000)
           if (!this.realtimeRecordingActive) {
-            fs.promises.unlink(tempRaw).catch(() => {})
+            fs.promises.unlink(tempRaw).catch(() => { })
             break
           }
 
           const wavBuffer = await fs.promises.readFile(tempRaw)
-          fs.promises.unlink(tempRaw).catch(() => {})
+          fs.promises.unlink(tempRaw).catch(() => { })
 
           const parsed = this.parseWavFloat32ToInt16Mono(wavBuffer)
           if (parsed && parsed.pcm.length > 0) {
@@ -602,13 +608,41 @@ export class ProcessingHelper {
   //  Personality system
   // ═══════════════════════════════════════════════════════════════════
 
+  private getPresetById(presetId: string | null | undefined): PersonalityPreset | null {
+    if (!presetId) return null
+    return PERSONALITY_PRESETS.find((preset) => preset.id === presetId) ?? null
+  }
+
+  private fallbackPreset(): PersonalityPreset {
+    return PERSONALITY_PRESETS[0]
+  }
+
+  private normalizeScope(scope: Partial<PersonalityScope> | undefined, fallback: string): PersonalityScope {
+    return {
+      raw: typeof scope?.raw === "string" ? scope.raw : fallback,
+      effective: typeof scope?.effective === "string" ? scope.effective : fallback,
+    }
+  }
+
+  private normalizePersonalitySettings(data: Partial<PersonalitySettings> | null | undefined): PersonalitySettings {
+    const preset = this.getPresetById(data?.activePreset ?? null)
+    const fallback = preset ?? this.fallbackPreset()
+
+    return {
+      chat: this.normalizeScope(data?.chat, fallback.chat),
+      transcription: this.normalizeScope(data?.transcription, fallback.transcription),
+      imageAnalysis: this.normalizeScope(data?.imageAnalysis, fallback.imageAnalysis),
+      activePreset: data?.activePreset === null ? null : preset?.id ?? fallback.id,
+    }
+  }
+
   private loadPersonality(): void {
     try {
       if (fs.existsSync(this.personalityFilePath)) {
-        const data = JSON.parse(fs.readFileSync(this.personalityFilePath, "utf-8")) as PersonalitySettings
-        this.personality = data
+        const data = JSON.parse(fs.readFileSync(this.personalityFilePath, "utf-8")) as Partial<PersonalitySettings>
+        this.personality = this.normalizePersonalitySettings(data)
         this.applyPersonality()
-        this.log(`Loaded personality: ${data.activePreset || "custom"}`)
+        this.log(`Loaded personality: ${this.personality.activePreset || "custom"}`)
       } else {
         this.applyPreset("interview")
       }
@@ -629,28 +663,33 @@ export class ProcessingHelper {
   }
 
   private applyPersonality(): void {
-    const preset = this.personality.activePreset
-      ? PERSONALITY_PRESETS.find(p => p.id === this.personality.activePreset)
-      : null
+    const preset = this.getPresetById(this.personality.activePreset)
 
     if (preset) {
       this.systemPrompt = preset.transcription
       this.personality.chat.effective = preset.chat
       this.personality.transcription.effective = preset.transcription
+      this.personality.imageAnalysis.effective = preset.imageAnalysis
     } else {
       this.systemPrompt = this.personality.transcription.effective || this.personality.transcription.raw || PERSONALITY_PRESETS[0].transcription
       this.personality.chat.effective = this.personality.chat.effective || this.personality.chat.raw || PERSONALITY_PRESETS[0].chat
+      this.personality.imageAnalysis.effective =
+        this.personality.imageAnalysis.effective ||
+        this.personality.imageAnalysis.raw ||
+        PERSONALITY_PRESETS[0].imageAnalysis
     }
   }
 
   public applyPreset(presetId: string): void {
-    const preset = PERSONALITY_PRESETS.find(p => p.id === presetId)
+    const preset = this.getPresetById(presetId)
     if (!preset) return
     this.personality.activePreset = presetId
     this.personality.chat.raw = preset.chat
     this.personality.chat.effective = preset.chat
     this.personality.transcription.raw = preset.transcription
     this.personality.transcription.effective = preset.transcription
+    this.personality.imageAnalysis.raw = preset.imageAnalysis
+    this.personality.imageAnalysis.effective = preset.imageAnalysis
     this.applyPersonality()
     this.savePersonality()
   }
@@ -658,18 +697,24 @@ export class ProcessingHelper {
   /**
    * Set custom personality text and paraphrase it via Gemini.
    */
-  public async setCustomPersonality(scope: "chat" | "transcription", rawText: string): Promise<string> {
+  public async setCustomPersonality(scope: "chat" | "transcription" | "imageAnalysis", rawText: string): Promise<string> {
     this.personality.activePreset = null
     this.personality[scope].raw = rawText
 
     try {
-      const scopeLabel = scope === "chat" ? "chat assistant" : "live transcription filter"
+      const scopeLabel =
+        scope === "chat"
+          ? "chat assistant"
+          : scope === "transcription"
+            ? "live transcription filter"
+            : "image analysis assistant"
       const paraphrasePrompt =
         `Convert the following personality description into a tightly written system prompt for an AI ${scopeLabel}.\n` +
         `Keep the core tone, constraints, and intent. Make it a clear, imperative instruction set (2–4 sentences max).\n` +
         `Do NOT add capabilities the user didn't request. Return ONLY the rewritten prompt — no labels, no quotes, no explanation.\n\n` +
+        `Allow simple Markdown formatting when it improves readability, but do not force it.\n\n` +
         `Personality description: "${rawText}"`
-      const effective = await this.llmHelper.chat(paraphrasePrompt)
+      const effective = await this.llmHelper.chatLite(paraphrasePrompt)
       this.personality[scope].effective = effective.trim()
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "unknown error"
@@ -692,5 +737,9 @@ export class ProcessingHelper {
 
   public getTranscriptionPersonality(): string {
     return this.personality.transcription.effective || PERSONALITY_PRESETS[0].transcription
+  }
+
+  public getImageAnalysisPersonality(): string {
+    return this.personality.imageAnalysis.effective || PERSONALITY_PRESETS[0].imageAnalysis
   }
 }

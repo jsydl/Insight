@@ -188,3 +188,104 @@ button, input, select, textarea, .interactive {
   animation: shimmer 4s ease-in-out infinite;
   pointer-events: none;
 }
+
+.markdown-message {
+  color: inherit;
+  overflow-wrap: break-word;
+  word-break: break-word;
+  line-height: 1.45;
+}
+
+.markdown-message > :first-child {
+  margin-top: 0;
+}
+
+.markdown-message > :last-child {
+  margin-bottom: 0;
+}
+
+.markdown-message p,
+.markdown-message ul,
+.markdown-message ol,
+.markdown-message blockquote,
+.markdown-message pre,
+.markdown-message table {
+  margin: 0 0 0.5rem;
+}
+
+.markdown-message br {
+  display: block;
+  content: '';
+  margin-top: 0.15rem;
+}
+
+.markdown-message ul,
+.markdown-message ol {
+  padding-left: 1rem;
+}
+
+.markdown-message ul {
+  list-style: disc;
+}
+
+.markdown-message ol {
+  list-style: decimal;
+}
+
+.markdown-message li + li {
+  margin-top: 0.15rem;
+}
+
+.markdown-message blockquote {
+  border-left: 2px solid rgba(255, 255, 255, 0.16);
+  padding-left: 0.65rem;
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.markdown-message code {
+  font-family: Consolas, "Courier New", monospace;
+  font-size: 0.95em;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 0.35rem;
+  padding: 0.08rem 0.32rem;
+}
+
+.markdown-message pre {
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 0.5rem;
+  padding: 0.55rem 0.65rem;
+  overflow-x: auto;
+}
+
+.markdown-message pre code {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+}
+
+.markdown-message table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: inherit;
+}
+
+.markdown-message th,
+.markdown-message td {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 0.28rem 0.4rem;
+  text-align: left;
+  vertical-align: top;
+}
+
+.markdown-message th {
+  color: rgba(255, 255, 255, 0.92);
+  background: rgba(255, 255, 255, 0.06);
+  font-weight: 600;
+}
+
+.markdown-message td {
+  color: rgba(255, 255, 255, 0.8);
+}

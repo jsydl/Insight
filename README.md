@@ -7,7 +7,7 @@
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?style=square&logo=typescript&logoColor=black)
 ![Vite](https://img.shields.io/badge/Vite-5-646CFF?style=square&logo=vite&logoColor=white)
 ![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-3-06B6D4?style=square&logo=tailwindcss&logoColor=white)
-![Gemini](https://img.shields.io/badge/Gemini-2.5_Flash_Lite-4285F4?style=square&logo=google&logoColor=white)
+![Gemini](https://img.shields.io/badge/Gemini-2.5_Flash-4285F4?style=square&logo=google&logoColor=white)
 ![ElevenLabs](https://img.shields.io/badge/ElevenLabs-Scribe_v2_Realtime-111111?style=square)
 
 Insight is a lightweight Electron desktop assistant for real-time help during meetings, interviews, and live sessions. Heavily reworked version based on https://github.com/Prat011/free-cluely.
@@ -15,8 +15,9 @@ Insight is a lightweight Electron desktop assistant for real-time help during me
 ## What It Does
 
 - Always-on-top translucent bubble window
+- Always-on-top translucent bubble window
 - Real-time transcription with ElevenLabs Scribe v2 Realtime
-- Chat and screenshot analysis with Gemini 2.5 Flash Lite
+- Chat, transcript Q/A, and screenshot analysis with Gemini 2.5 Flash
 - Personality presets and custom personality prompts
 
 ## Requirements
@@ -34,6 +35,7 @@ Get keys:
 ## Setup
 
 ```bash
+git clone https://github.com/jsydl/Insight
 git clone https://github.com/jsydl/Insight
 cd insight
 npm install
@@ -71,11 +73,14 @@ Packaged output is written to `release-build/`.
 - `Ctrl/Cmd + R`: Reset interview/session context
 - `Ctrl/Cmd + Left/Right/Up/Down`: Move window
 - `Ctrl/Cmd + H`: Screenshot analysis
+- `Ctrl/Cmd + H`: Screenshot analysis
 
 ## UI Controls Reference
 
 ### Main Bubble Bar
 
+- `⊕` button (left-click): Toggle show/hide the bubble.
+- `Record` button (left-click): Start realtime transcription. While recording, clicking again stops transcription.
 - `⊕` button (left-click): Toggle show/hide the bubble.
 - `Record` button (left-click): Start realtime transcription. While recording, clicking again stops transcription.
 - `Record` button (right-click): Clears transcript log, clears generated Q/A items, and clears transcription context in memory.
@@ -84,12 +89,15 @@ Packaged output is written to `release-build/`.
 - `Chat` button (left-click): Open or close the chat panel.
 - `Chat` button (right-click): Clear chat messages and clear conversation history context.
 - Red exit icon (left-click): Quit the app.
+- Red exit icon (left-click): Quit the app.
 
+### Chat Panel
 ### Chat Panel
 
 - Message input: Type a message for Gemini chat.
+- Message input: Type a message for Gemini chat.
 - Send button or `Enter`: Send the current chat message.
-- Screenshot button: Capture screen and analyze it with Gemini 2.5 Flash Lite.
+- Screenshot button: Capture screen and analyze it with Gemini 2.5 Flash.
 
 ### Transcript and Q/A Panels
 
@@ -99,6 +107,7 @@ Packaged output is written to `release-build/`.
 
 ## Tray Icon Behavior
 
+- Tray icon left-click: Toggle the main window visibility.
 - Tray icon left-click: Toggle the main window visibility.
 - Tray icon right-click: Open tray menu.
 - Tray menu `Reset Position`: Re-center window to default position.
@@ -131,6 +140,65 @@ In production, `.env` is loaded from runtime candidates including:
 
 ## Troubleshooting
 
+Check the app log first:
+
+- Windows log file: `C:\Users\<YourUser>\AppData\Roaming\Insight\log.txt`
+
+Common issues:
+
+- Gemini chat or screenshot analysis fails:
+  - Verify `GEMINI_API_KEY` is present in your `.env`
+  - Typical error: `Missing GEMINI_API_KEY in environment. Please add it to your .env file`
+
+- Transcription is unavailable or fails to start:
+  - Verify `ELEVENLABS_API_KEY` is present in your `.env`
+  - Typical error: `Missing ELEVENLABS_API_KEY`
+  - The app may also log: `Failed to start transcription: ...`
+
+- Realtime transcription disconnects or stops unexpectedly:
+  - Check the log for:
+    - `ElevenLabs websocket error: ...`
+    - `ElevenLabs websocket closed (...)`
+    - `Lost connection to ElevenLabs realtime transcription`
+    - `ElevenLabs reconnect failed: ...`
+
+- Packaged app cannot capture/transcribe system audio:
+  - Check the log for:
+    - `Audio capture helper was not found in the packaged app`
+    - `Realtime capture loop error: ...`
+    - `wasapi-loopback.exe not found; candidates=...`
+
+- Screenshot capture or analysis fails:
+  - Check the log for:
+    - `Error in capture-and-analyze-screenshot: ...`
+  - Gemini may also return:
+    - `Screenshot data is empty or too small — capture may have failed.`
+
+- Custom personality does not save or load:
+  - Check the log for:
+    - `Failed to save personality: ...`
+    - `Failed to load personality, using default: ...`
+
+- Window/tray/startup behavior seems wrong:
+  - Check the log for:
+    - `[Startup] Registered Startup Apps entry (disabled by default)`
+    - `[Tray] ...`
+    - `[WindowHelper] ...`
+
+- `.env` is not being picked up in the packaged app:
+  - The app logs all searched runtime `.env` locations
+  - Check the log for:
+    - `[ENV] searched=...`
+    - `[ENV] loaded=...`
+
+If something still fails, open the log file and look for entries from:
+
+- `[App]`
+- `[ipcHandlers]`
+- `[ProcessingHelper]`
+- `[WindowHelper]`
+- `[Shortcuts]`
+- `[ENV]`
 Check the app log first:
 
 - Windows log file: `C:\Users\<YourUser>\AppData\Roaming\Insight\log.txt`
