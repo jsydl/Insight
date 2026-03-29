@@ -6,7 +6,7 @@ import { GoogleGenAI, createPartFromBase64 } from "@google/genai"
 import type { Content, GenerateContentConfig, GenerateContentResponse } from "@google/genai"
 
 const GEMINI_INTERACTIVE_MODEL = "gemini-2.5-flash"
-const GEMINI_LITE_MODEL = "gemini-2.5-flash-lite"
+const GEMINI_LITE_MODEL = "gemini-3.1-flash-lite-preview"
 const GEMINI_INTERACTIVE_CONFIG: GenerateContentConfig = {
   thinkingConfig: {
     thinkingBudget: -1,
